@@ -6,6 +6,7 @@ import {
 	MURAL_MODEL_DEPRECATION_WARNING,
 	WINDOW_OVERLAY_PATH_DEPRECATION_WARNING,
 } from "@magic-context/core/config/deprecated-config";
+import { LAUNCHER_PROFILE_ENV } from "@magic-context/core/config/profiles";
 import { getProtectedTokensTierOverrides } from "@magic-context/core/config/project-security";
 import { REMOVED_AGENT_CONFIG_WARNING } from "@magic-context/core/config/removed-agent-config";
 import { MagicContextConfigSchema } from "@magic-context/core/config/schema/magic-context";
@@ -18,6 +19,7 @@ import { loadPiConfig, loadPiConfigDetailed } from "./index";
 const tempRoots: string[] = [];
 const originalHome = process.env.HOME;
 const originalXdgConfigHome = process.env.XDG_CONFIG_HOME;
+const originalLauncherProfile = process.env[LAUNCHER_PROFILE_ENV];
 
 function makeTempRoot(prefix: string): string {
 	const path = createTestTempDirFromPath(join(tmpdir(), prefix));
@@ -75,6 +77,11 @@ afterEach(() => {
 		delete process.env.XDG_CONFIG_HOME;
 	} else {
 		process.env.XDG_CONFIG_HOME = originalXdgConfigHome;
+	}
+	if (originalLauncherProfile === undefined) {
+		delete process.env[LAUNCHER_PROFILE_ENV];
+	} else {
+		process.env[LAUNCHER_PROFILE_ENV] = originalLauncherProfile;
 	}
 
 	for (const path of tempRoots.splice(0)) {
@@ -633,6 +640,99 @@ describe("loadPiConfig", () => {
 				{ model: "openai/work-fallback", thinking_level: "minimal" },
 			],
 		});
+	});
+
+	it("applies the profile named by MAGIC_CONTEXT_PROFILE", () => {
+		const cwd = makeTempRoot("mc-pi-launcher-cwd-");
+		const home = makeTempRoot("mc-pi-launcher-home-");
+		withHome(home);
+		writeUserConfig(
+			home,
+			JSON.stringify({
+				historian: { pi: { model: "github-copilot/base" } },
+				profiles: {
+					subagent: {
+						historian: { pi: { model: "github-copilot/subagent" } },
+						memory: { read_only: true },
+					},
+				},
+			}),
+		);
+		process.env[LAUNCHER_PROFILE_ENV] = "subagent";
+
+		const result = loadPiConfig({ cwd });
+
+		expect(result.config.profile).toBe("subagent");
+		expect(result.config.historian?.pi?.model).toBe("github-copilot/subagent");
+		expect(result.config.memory.read_only).toBe(true);
+	});
+
+	it("lets a launcher-selected read-only policy beat a project config that allows writes", () => {
+		const cwd = makeTempRoot("mc-pi-launcher-project-cwd-");
+		const home = makeTempRoot("mc-pi-launcher-project-home-");
+		withHome(home);
+		writeUserConfig(
+			home,
+			JSON.stringify({
+				profiles: { subagent: { memory: { read_only: true } } },
+			}),
+		);
+		writeProjectConfig(cwd, JSON.stringify({ memory: { read_only: false } }));
+		process.env[LAUNCHER_PROFILE_ENV] = "subagent";
+
+		const result = loadPiConfig({ cwd });
+
+		expect(result.config.memory.read_only).toBe(true);
+	});
+
+	it("warns and loads normally for an unknown launcher profile", () => {
+		const cwd = makeTempRoot("mc-pi-launcher-unknown-cwd-");
+		const home = makeTempRoot("mc-pi-launcher-unknown-home-");
+		withHome(home);
+		writeUserConfig(
+			home,
+			JSON.stringify({
+				memory: { injection_budget_tokens: 5000 },
+				profiles: { real: { memory: { read_only: true } } },
+			}),
+		);
+		process.env[LAUNCHER_PROFILE_ENV] = "missing";
+
+		const result = loadPiConfig({ cwd });
+
+		// The session still loads with normal resolution — a wrong profile name
+		// must never refuse a session.
+		expect(result.config.memory.read_only).toBe(false);
+		expect(result.config.memory.injection_budget_tokens).toBe(5000);
+		expect(result.config.profile).toBeUndefined();
+		const warning = result.warnings.find((entry) =>
+			entry.includes(LAUNCHER_PROFILE_ENV),
+		);
+		expect(warning).toContain(
+			'Unknown MAGIC_CONTEXT_PROFILE profile "missing"',
+		);
+		expect(warning).toContain("real");
+	});
+
+	it("leaves profile resolution to the config files when the variable is unset", () => {
+		const cwd = makeTempRoot("mc-pi-launcher-unset-cwd-");
+		const home = makeTempRoot("mc-pi-launcher-unset-home-");
+		withHome(home);
+		writeUserConfig(
+			home,
+			JSON.stringify({
+				profile: "from-config",
+				profiles: {
+					"from-config": { memory: { read_only: true } },
+					subagent: { memory: { read_only: false } },
+				},
+			}),
+		);
+
+		const result = loadPiConfig({ cwd });
+
+		expect(result.config.profile).toBe("from-config");
+		expect(result.config.memory.read_only).toBe(true);
 	});
 
 	it("ignores the removed agent block with one warning", () => {

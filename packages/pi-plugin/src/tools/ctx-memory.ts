@@ -384,6 +384,11 @@ export interface CtxMemoryToolDeps {
 	/** When true, Curate-only execution fields and guards are enabled. The separate
 	 *  ctx_memory_list registration uses this mode to reuse the list handler. */
 	allowDreamerActions?: boolean;
+	/** Resolve the memory write policy at call time: `false` refuses the tool
+	 *  before any action runs (`memory.enabled: false` or `memory.read_only`). Pi
+	 *  registers tools once, but `/cd` can switch to a project with a different
+	 *  policy. */
+	resolveMemoryWritesEnabled?: (ctx: { cwd: string }) => boolean | undefined;
 }
 
 export function createCtxMemoryTool(
@@ -404,6 +409,11 @@ export function createCtxMemoryTool(
 			_onUpdate,
 			ctx,
 		) {
+			if (deps.resolveMemoryWritesEnabled?.({ cwd: ctx.cwd }) === false) {
+				return err(
+					"Error: ctx_memory is unavailable while memory writes are disabled for this session (memory.enabled: false or memory.read_only); nothing was written.",
+				);
+			}
 			params = unwrapImitatedReducedArgs(params, ["action"], {
 				action: { type: "enum", values: ALL_ACTIONS },
 				content: "string",

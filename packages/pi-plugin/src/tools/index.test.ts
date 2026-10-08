@@ -1,4 +1,10 @@
 import { describe, expect, it } from "bun:test";
+import { resolveProjectIdentity } from "@magic-context/core/features/magic-context/memory/project-identity";
+import {
+	getMemoriesByProject,
+	insertMemory,
+} from "@magic-context/core/features/magic-context/memory/storage-memory";
+import { getNotes } from "@magic-context/core/features/magic-context/storage";
 import {
 	A1_HASH_BASELINE_HEADING,
 	A1_TOOL_SECTION_HEADING,
@@ -15,29 +21,191 @@ import {
 	LIGHT_PARAMETER_DESCRIPTIONS,
 } from "@magic-context/core/tools/parameter-descriptions";
 import { __setPiHarnessKindForTesting } from "../pi-harness-kind";
-import { createTestDb } from "../test-utils.test";
-import { registerMagicContextTools, syncCtxMemoryToolEnabled } from "./index";
+import { createTestDb, fakeContext } from "../test-utils.test";
+import {
+	registerMagicContextTools,
+	syncMemoryWriteToolsEnabled,
+} from "./index";
 
 describe("registerMagicContextTools", () => {
-	it("removes ctx_memory from Pi's enabled tools when memory is off and restores it after a config reload", () => {
-		let activeTools = ["read", "ctx_search", "ctx_memory", "ctx_note"];
+	it("withholds the write tools each policy forbids and restores them after a config reload", () => {
+		const baseline = [
+			"read",
+			"ctx_search",
+			"ctx_memory",
+			"ctx_note",
+			"ctx_expand",
+			"ctx_reduce",
+		];
+		let activeTools: string[] = [];
 		const pi = {
 			getActiveTools: () => activeTools,
 			setActiveTools: (tools: string[]) => {
 				activeTools = tools;
 			},
 		} as never;
+		// Each policy is asserted from a fresh session's enabled set; the read
+		// surface (`ctx_search`/`ctx_expand`/`ctx_reduce`) is never touched.
+		const activeAfter = (gates: { memories: boolean; notes: boolean }) => {
+			activeTools = [...baseline];
+			syncMemoryWriteToolsEnabled(pi, gates);
+			return [...activeTools].sort();
+		};
 
-		syncCtxMemoryToolEnabled(pi, false);
-		expect(activeTools).toEqual(["read", "ctx_search", "ctx_note"]);
+		// `memory.read_only`: both tools that write project knowledge go.
+		expect(activeAfter({ memories: false, notes: false })).toEqual(
+			["ctx_expand", "ctx_reduce", "ctx_search", "read"].sort(),
+		);
+		// `memory.enabled: false` withholds ctx_memory alone — ctx_note keeps the
+		// scope it has on OpenCode.
+		expect(activeAfter({ memories: false, notes: true })).toEqual(
+			["ctx_expand", "ctx_note", "ctx_reduce", "ctx_search", "read"].sort(),
+		);
+		// A later session in the same process restores both from the plain set.
+		expect(activeAfter({ memories: true, notes: true })).toEqual(
+			[...baseline].sort(),
+		);
+	});
 
-		syncCtxMemoryToolEnabled(pi, true);
-		expect(activeTools).toEqual([
-			"read",
-			"ctx_search",
-			"ctx_note",
-			"ctx_memory",
-		]);
+	it("refuses a direct ctx_memory/ctx_note call in a read-only session and writes nothing", async () => {
+		interface RefusableTool {
+			name: string;
+			execute: (
+				toolCallId: string,
+				params: Record<string, unknown>,
+				signal: AbortSignal,
+				onUpdate: undefined,
+				ctx: unknown,
+			) => Promise<{ isError?: boolean; content: Array<{ text?: string }> }>;
+		}
+		const db = createTestDb();
+		try {
+			const { registered, pi } = captureTools();
+
+			registerMagicContextTools(pi, {
+				db,
+				// The definitions stay registered; the resolver decides the policy.
+				memoryToolEnabled: true,
+				memoryEnabled: true,
+				embeddingEnabled: false,
+				gitCommitsEnabled: false,
+				resolveMemoryWritesEnabled: () => false,
+				resolveNotesWritesEnabled: () => false,
+			});
+
+			const ctx = fakeContext("ses-read-only");
+			// The registry's surface wrapper turns a returned refusal into a thrown
+			// tool error, which is what Pi shows the agent.
+			await expect(
+				registered.get("ctx_memory")?.execute(
+					"call-memory",
+					{
+						action: "write",
+						content: "must not be written",
+						category: "pattern",
+					},
+					new AbortController().signal,
+					undefined,
+					ctx,
+				),
+			).rejects.toThrow(
+				/ctx_memory is unavailable while memory writes are disabled for this session/,
+			);
+			await expect(
+				registered
+					.get("ctx_note")
+					?.execute(
+						"call-note",
+						{ action: "write", content: "must not be written" },
+						new AbortController().signal,
+						undefined,
+						ctx,
+					),
+			).rejects.toThrow(
+				/ctx_note is unavailable while memory\.read_only is set for this session/,
+			);
+
+			expect(getNotes(db, { sessionId: "ses-read-only" })).toEqual([]);
+			expect(
+				getMemoriesByProject(db, resolveProjectIdentity(process.cwd())),
+			).toEqual([]);
+
+			// The read surface is untouched: the same session finds a project memory.
+			insertMemory(db, {
+				projectPath: resolveProjectIdentity(process.cwd()),
+				category: "NAMING",
+				content: "a read-only session can still read this fact",
+			});
+			const found = await registered
+				.get("ctx_search")
+				?.execute(
+					"call-search",
+					{ query: "read this fact", sources: ["memory"] },
+					new AbortController().signal,
+					undefined,
+					ctx,
+				);
+			expect(found?.isError).toBeUndefined();
+			expect(found?.content[0]?.text).toContain(
+				"a read-only session can still read this fact",
+			);
+		} finally {
+			closeQuietly(db);
+		}
+	});
+
+	it("keeps ctx_note working when memory is off, refusing ctx_memory alone", async () => {
+		const db = createTestDb();
+		try {
+			const { registered, pi } = captureTools();
+
+			// `memory.enabled: false` with a writable session: the memory feature switch
+			// keeps its existing scope, which is ctx_memory only.
+			registerMagicContextTools(pi, {
+				db,
+				memoryToolEnabled: true,
+				memoryEnabled: false,
+				embeddingEnabled: false,
+				gitCommitsEnabled: false,
+				resolveMemoryWritesEnabled: () => false,
+				resolveNotesWritesEnabled: () => true,
+			});
+
+			const ctx = fakeContext("ses-memory-off");
+			await expect(
+				registered.get("ctx_memory")?.execute(
+					"call-memory",
+					{
+						action: "write",
+						content: "must not be written",
+						category: "NAMING",
+					},
+					new AbortController().signal,
+					undefined,
+					ctx,
+				),
+			).rejects.toThrow(
+				/ctx_memory is unavailable while memory writes are disabled for this session \(memory\.enabled: false or memory\.read_only\)/,
+			);
+
+			const note = await registered
+				.get("ctx_note")
+				?.execute(
+					"call-note",
+					{ action: "write", content: "a note survives memory being off" },
+					new AbortController().signal,
+					undefined,
+					ctx,
+				);
+			expect(note?.isError).toBeUndefined();
+			expect(
+				getNotes(db, { sessionId: "ses-memory-off", type: "session" }).map(
+					(n) => n.content,
+				),
+			).toEqual(["a note survives memory being off"]);
+		} finally {
+			closeQuietly(db);
+		}
 	});
 
 	it("can omit ctx_memory for lean child processes", () => {

@@ -35,6 +35,11 @@ import {
 	historianRunConfig,
 } from "@magic-context/core/config/live-run-config";
 import { LiveConfigReader } from "@magic-context/core/config/live-snapshot";
+import {
+	memoryPromotionEnabled,
+	memoryWritesEnabled,
+	notesWritesEnabled,
+} from "@magic-context/core/config/memory-policy";
 import { migrateMagicContextConfigLocations } from "@magic-context/core/config/migrate-config-location";
 import { getProtectedTokensTierOverrides } from "@magic-context/core/config/project-security";
 import type {
@@ -268,7 +273,10 @@ import {
 	prewarmPiTagSnapshot,
 } from "./tag-snapshot-pi";
 import { withTimeout } from "./timeout";
-import { registerMagicContextTools, syncCtxMemoryToolEnabled } from "./tools";
+import {
+	registerMagicContextTools,
+	syncMemoryWriteToolsEnabled,
+} from "./tools";
 import {
 	parseTodos,
 	registerTodoOverlay,
@@ -1133,7 +1141,9 @@ export function resolveHistorianFromConfig(
 		keepReasoningTokens: config.keep_reasoning_tokens,
 		historyBudgetPercentage: config.history_budget_percentage,
 		memoryEnabled: config.memory.enabled,
-		autoPromote: config.memory.auto_promote,
+		// Fact promotion is a write into project knowledge, so a read-only session
+		// (`memory.read_only`) turns it off through the existing auto-promote gate.
+		autoPromote: memoryPromotionEnabled(config.memory),
 		userMemoriesEnabled: userObservationCollectionEnabled(config.dreamer),
 		userObservationsRequested: userObservationsRequested(config.dreamer),
 		language: config.language,
@@ -1958,6 +1968,13 @@ async function startPiMagicContextRuntime(
 			resolveCurrentProjectDeps(ctx).config.protected_tags ?? 20,
 		resolveProjectIdentity: (ctx) =>
 			resolveCurrentProjectDeps(ctx).projectIdentity,
+		// Write side of the memory policy, resolved per directory so a session in a
+		// read-only project refuses ctx_memory/ctx_note even while the definitions
+		// stay registered for other sessions in this process.
+		resolveMemoryWritesEnabled: (ctx) =>
+			memoryWritesEnabled(resolveCurrentProjectDeps(ctx).config.memory),
+		resolveNotesWritesEnabled: (ctx) =>
+			notesWritesEnabled(resolveCurrentProjectDeps(ctx).config.memory),
 		// Smart notes (surface_condition) only work when dreamer is
 		// running — otherwise the note sits `pending` forever with no
 		// path to surface. Match the user's dreamer config flag.
@@ -2002,7 +2019,10 @@ async function startPiMagicContextRuntime(
 		activeModelChainContext = ctx;
 		reportPiModelChains(ctx, current);
 		if (ctx.hasUI) syncDreamerProjectRegistration(current, ctx.modelRegistry);
-		syncCtxMemoryToolEnabled(pi, current.config.memory.enabled);
+		syncMemoryWriteToolsEnabled(pi, {
+			memories: memoryWritesEnabled(current.config.memory),
+			notes: notesWritesEnabled(current.config.memory),
+		});
 
 		const failuresToShow = claimConfigParseFailuresOnce(
 			"pi",
@@ -2206,7 +2226,7 @@ async function startPiMagicContextRuntime(
 		),
 		language: bootProjectDeps.config.language,
 		memoryEnabled: bootProjectDeps.config.memory.enabled,
-		autoPromote: bootProjectDeps.config.memory.auto_promote,
+		autoPromote: memoryPromotionEnabled(bootProjectDeps.config.memory),
 		compactionOff,
 		resolveRuntimeDeps: (ctx) => {
 			const current = resolveCurrentProjectDeps(ctx);
@@ -2225,7 +2245,7 @@ async function startPiMagicContextRuntime(
 				...buildPiHistorianCommandOptions(historian, current.config),
 				language: current.config.language,
 				memoryEnabled: current.config.memory.enabled,
-				autoPromote: fresh.memory.auto_promote,
+				autoPromote: memoryPromotionEnabled(fresh.memory),
 				compactionOff,
 			};
 		},
@@ -2244,7 +2264,7 @@ async function startPiMagicContextRuntime(
 		),
 		language: bootProjectDeps.config.language,
 		memoryEnabled: bootProjectDeps.config.memory.enabled,
-		autoPromote: bootProjectDeps.config.memory.auto_promote,
+		autoPromote: memoryPromotionEnabled(bootProjectDeps.config.memory),
 		compactionOff,
 		userMemoriesEnabled: userObservationCollectionEnabled(
 			bootProjectDeps.config.dreamer,
@@ -2272,7 +2292,7 @@ async function startPiMagicContextRuntime(
 				...buildPiHistorianCommandOptions(historian, current.config),
 				language: current.config.language,
 				memoryEnabled: current.config.memory.enabled,
-				autoPromote: fresh.memory.auto_promote,
+				autoPromote: memoryPromotionEnabled(fresh.memory),
 				compactionOff,
 				userMemoriesEnabled: userObservationCollectionEnabled(
 					current.config.dreamer,
@@ -2558,7 +2578,10 @@ async function startPiMagicContextRuntime(
 				db,
 				cwd: currentProject.projectDir,
 				sessionId,
-				memoryEnabled: effectiveConfig.memory.enabled,
+				// The sentence that advertises ctx_memory rides the write side of the
+				// memory policy: in a read-only session the tool is withheld, so its
+				// guidance must go with it (the read surface is unaffected).
+				memoryEnabled: memoryWritesEnabled(effectiveConfig.memory),
 				includeGuidance: true,
 				protectedTags: effectiveConfig.protected_tags,
 				ctxReduceCallable: !compactionOff,

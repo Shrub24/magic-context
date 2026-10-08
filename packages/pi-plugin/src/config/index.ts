@@ -14,7 +14,10 @@ import {
 } from "@magic-context/core/config/deprecated-config";
 import { migrateDreamerV2 } from "@magic-context/core/config/migrate-dreamer-v2";
 import { migrateLegacyExperimental } from "@magic-context/core/config/migrate-experimental";
-import { resolveConfigProfile } from "@magic-context/core/config/profiles";
+import {
+	LAUNCHER_PROFILE_ENV,
+	resolveConfigProfile,
+} from "@magic-context/core/config/profiles";
 import {
 	attachProtectedTokensTierOverrides,
 	constrainProjectThresholdOverrides,
@@ -637,7 +640,16 @@ export function loadPiConfigDetailed(
 		...removedConfigWarnings.map((warning) => `[config] ${warning}`),
 	);
 
-	const profileResolution = resolveConfigProfile({ userRaw, projectRaw });
+	// A launcher (e.g. a spawning extension) may name the profile its child
+	// process should run under. Applied after the project tier below so a project
+	// config cannot weaken it. OpenCode has no launcher need and ignores the
+	// variable (see packages/pi-plugin/PARITY.md §24).
+	const launcherProfile = process.env[LAUNCHER_PROFILE_ENV]?.trim();
+	const profileResolution = resolveConfigProfile({
+		userRaw,
+		projectRaw,
+		launcherProfile: launcherProfile || undefined,
+	});
 	warnings.push(
 		...profileResolution.warnings.map((warning) => `[config] ${warning}`),
 	);
@@ -674,6 +686,12 @@ export function loadPiConfigDetailed(
 			warnings.push(`[project config] ${warning}`);
 		}
 		projectRestoredTopLevelKeys = restoredOverProject.restoredTopLevelKeys;
+	}
+
+	// Launcher-selected policy wins over the project tier: the process was started
+	// with this profile, so a repository cannot re-enable what it withheld.
+	if (profileResolution.launcherOverlay) {
+		rawConfig = mergeRawConfigs(rawConfig, profileResolution.launcherOverlay);
 	}
 
 	const hasDeprecatedProtectedTags =

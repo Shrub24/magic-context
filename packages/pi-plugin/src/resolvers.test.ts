@@ -95,6 +95,26 @@ describe("Pi config resolvers", () => {
 		}
 	});
 
+	it("keeps the historian read side while a read-only session turns promotion off", () => {
+		const config = MagicContextConfigSchema.parse({
+			memory: { read_only: true, auto_promote: true },
+			historian: { pi: { model: "pi/historian" } },
+		});
+		// Compartments still publish (`memoryEnabled`), fact promotion does not.
+		expect(resolveHistorianFromConfig(config)).toMatchObject({
+			memoryEnabled: true,
+			autoPromote: false,
+		});
+
+		const writable = MagicContextConfigSchema.parse({
+			historian: { pi: { model: "pi/historian" } },
+		});
+		expect(resolveHistorianFromConfig(writable)).toMatchObject({
+			memoryEnabled: true,
+			autoPromote: true,
+		});
+	});
+
 	it("resolves OMP overrides with Pi fallback and existing empty defaults", () => {
 		const configured = MagicContextConfigSchema.parse({
 			historian: {

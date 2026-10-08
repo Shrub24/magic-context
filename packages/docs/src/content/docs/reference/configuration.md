@@ -86,7 +86,7 @@ Named user-owned model-selection overlays. A project may select a profile name b
 | Key | Type | Default | Description |
 |---|---|---|---|
 | `profile` | string | — | Select a named user-owned model profile. A valid project name overrides this user default; an empty string, null, or other non-string project value is ignored with a warning so the user selection still applies. Unknown names warn and use the base configuration. |
-| `profiles` | map<string, object> | — | User-level named model profiles. A profile may contain only historian/dreamer model, fallback_models, OpenCode variant, and Pi/OMP thinking_level fields; task execution policy (including timeout_minutes) is excluded. Project configs may select a name but cannot define profiles. |
+| `profiles` | map<string, object> | — | User-level named model profiles. A profile may contain only historian/dreamer model, fallback_models, OpenCode variant, and Pi/OMP thinking_level fields, plus memory.read_only; task execution policy (including timeout_minutes) is excluded. Project configs may select a name but cannot define profiles. |
 
 ## Historian
 
@@ -142,6 +142,7 @@ Durable project memory, semantic search, and recall features. OpenAI-compatible 
 |---|---|---|---|
 | `memory` | object | — | Cross-session memory configuration. auto_search and git_commit_indexing sit here for history but work with memory.enabled false. |
 | `memory.enabled` | boolean | `true` | Enable cross-session project memory (default: true). Also gates the dreamer's project-memory tasks: while false, map-memories, verify, verify-broad, curate, compress-cues, classify-memories, retrospective, promote-primers and refresh-primers neither run on schedule nor through /ctx-dream; maintain-docs, evaluate-smart-notes and review-user-memories still run. memory.auto_search and memory.git_commit_indexing do not depend on it. Does not affect history embedding or semantic ctx_search over session history; set embedding.provider to 'off' to stop all embedding. |
+| `memory.read_only` | boolean | `false` | Read project knowledge but never write it (default: false): ctx_memory and ctx_note are withheld and refused, and historian fact promotion is off. The <project-memory> block, ctx_search memory results and memory embeddings are unaffected. memory.enabled keeps its existing scope (it is not consulted for ctx_note). Honoured on Pi and OMP only — OpenCode keeps upstream's primary-only tool policy for subagents, so a project setting here is inert there. Put it in a config profile and select that profile with MAGIC_CONTEXT_PROFILE to scope it to a launcher's session. |
 | `memory.injection_budget_tokens` | number (500–20000) | `4000` | Token budget for memory injection on session start (min: 500, max: 20000, default: 4000) |
 | `memory.auto_promote` **Live** | boolean | `true` | Automatically promote eligible session facts into memory (default: true). No effect while memory.enabled is false. |
 | `memory.retrieval_count_promotion_threshold` | number (1–) | `3` | Currently has no effect: no code reads this value, and memories are not promoted to permanent by retrieval count. Kept so existing configs stay valid (min: 1, default: 3). |
