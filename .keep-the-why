@@ -1,0 +1,13 @@
+This is machine-readable project state for the Keep the Why skill
+(https://keepthewhy.com). See context/index.md, or this project's own
+README, for what Keep the Why actually is.
+
+<!-- keep-the-why:config -->
+- id: cortexkit---magic-context
+- canonical: https://github.com/cortexkit/magic-context
+- context: `context/`
+- init: complete
+- context-schema: 0.19.0
+- capture-confirmation: automatic
+- source-reference: never
+<!-- /keep-the-why:config -->
