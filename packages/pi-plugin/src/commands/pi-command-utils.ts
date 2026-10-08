@@ -2,6 +2,7 @@ import type {
 	CustomEntry,
 	ExtensionAPI,
 	ExtensionCommandContext,
+	ExtensionContext,
 	Theme,
 } from "@earendil-works/pi-coding-agent";
 import { Box, type Component, matchesKey, Text } from "@earendil-works/pi-tui";
@@ -182,7 +183,7 @@ export function registerCtxStatusEntryRenderer(pi: PiMessageSender): boolean {
 }
 
 async function presentCtxStatusMessage(
-	ctx: Pick<ExtensionCommandContext, "mode" | "ui">,
+	ctx: Pick<ExtensionContext, "mode" | "ui">,
 	content: CtxStatusMessageContent,
 	signal?: AbortSignal,
 ): Promise<void> {
@@ -210,7 +211,7 @@ async function presentCtxStatusMessage(
 
 export function createCtxStatusSender(
 	pi: PiMessageSender,
-	ctx: ExtensionCommandContext,
+	ctx: ExtensionContext,
 	signal?: AbortSignal,
 ): (content: CtxStatusMessageContent, details?: unknown) => void {
 	const lifecycleSignal = statusLifecycleSignals.get(pi);
@@ -228,7 +229,7 @@ export function sendCtxStatusMessage(
 	pi: PiMessageSender,
 	content: CtxStatusMessageContent,
 	details?: unknown,
-	ctx?: ExtensionCommandContext,
+	ctx?: ExtensionContext,
 	signal?: AbortSignal,
 ): void {
 	if (signal?.aborted) return;

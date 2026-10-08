@@ -1132,6 +1132,22 @@ OMP source references, shipped in 18.2.6:
 The overlay test preserves exact 100K/160K denominators, the stale-before-reload
 assertion, and the same session ID through the OMP restart.
 
+## 37. Flush and wrapup requests travel over Pi's event bus
+
+**Pi / OMP:** `magic-context:flush` and `magic-context:wrapup` on `pi.events`
+run the same code as `/ctx-flush` and `/ctx-wrapup` and answer on
+`magic-context:flush-result` / `magic-context:wrapup-result`
+(`ctx-lifecycle-events.ts`, registered from `index.ts` only). An event payload
+carries no context, so wrapup reuses the context recorded for that session's own
+last pass and refuses with `no-live-context` when the named session is not the
+live one; a session switch or shutdown drops the record.
+
+**OpenCode 1, OpenCode 2, Rust module:** not applicable. Those hosts run Magic
+Context as their only extension, so there is no in-process peer to ask and no
+`pi.events` bus. No equivalent surface is planned there; the fork's
+extension-to-extension seam exists only where Pi hosts more than one extension
+in one process.
+
 ## Static decision calibration
 
 Pi history rendering and the shared canonical protected-token walk use the same static seeds as OpenCode/Rust. Provider-reported SDK usage remains unscaled. The raw/replay fit helper recounts the supplied array and requires explicit system/tool observations; the storage-failure catch currently has no complete held observations and must refuse rather than admit on serialized byte size alone. Media and unsupported message shapes cannot establish fit. Historian fit uses assembled user/system text and independently resolves each selected model's window. Provider framing and subprocess-added prompt content remain outside MC's observed representation.
