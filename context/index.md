@@ -30,6 +30,7 @@
 
 ## E
 
+- [extension-seams.md](extension-seams.md) — why the fork exposes ctx behaviour and config to peer extensions
 ## F
 
 ## G
