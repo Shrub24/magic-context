@@ -10,6 +10,49 @@ import {
 } from "../context-handler";
 import { createCtxStatusSender, resolveSessionId } from "./pi-command-utils";
 
+export interface CtxFlushOutcome {
+	/** Pending ops queued before the flush ran. */
+	pendingOps: number;
+	result: string;
+}
+
+/**
+ * Shared body of `/ctx-flush`: the slash command and the `magic-context:flush`
+ * event both call it.
+ */
+export function executeCtxFlush(
+	db: ContextDatabase,
+	sessionId: string,
+): CtxFlushOutcome {
+	const pendingBefore = getPendingOps(db, sessionId).length;
+	const result = executeFlush(db, sessionId);
+
+	// Mirrors OpenCode `hook.ts:438-441` `onFlush`: explicit
+	// flush is a "force everything to refresh" semantic, so we
+	// signal all THREE refresh sets:
+	//   1. historyRefresh — flushing mutates persistent tag
+	//      state (status, drop_mode), so message[0] needs to
+	//      reflect the new state. Without this the cached
+	//      prepared block would replay the pre-flush version.
+	//   2. pendingMaterialization — guarantees pending ops
+	//      materialize on the next pass even if scheduler
+	//      decides "defer". Without this, /ctx-flush wouldn't
+	//      actually force materialization unless usage already
+	//      crossed the execute threshold (the whole point of
+	//      the command).
+	//   3. systemPromptRefresh — flushing should also re-read
+	//      disk-backed adjuncts (project-docs, user-profile,
+	//      key-files, sticky date). Otherwise an edit to
+	//      ARCHITECTURE.md followed by /ctx-flush leaves the
+	//      stale block until the next natural cache-busting
+	//      turn.
+	signalPiHistoryRefresh(sessionId);
+	signalPiPendingMaterialization(sessionId);
+	signalPiSystemPromptRefresh(sessionId);
+
+	return { pendingOps: pendingBefore, result };
+}
+
 export function registerCtxFlushCommand(
 	pi: ExtensionAPI,
 	deps: { db: ContextDatabase; compactionOff?: boolean },
@@ -37,31 +80,10 @@ export function registerCtxFlushCommand(
 				return;
 			}
 
-			const pendingBefore = getPendingOps(deps.db, sessionId).length;
-			const result = executeFlush(deps.db, sessionId);
-
-			// Mirrors OpenCode `hook.ts:438-441` `onFlush`: explicit
-			// flush is a "force everything to refresh" semantic, so we
-			// signal all THREE refresh sets:
-			//   1. historyRefresh — flushing mutates persistent tag
-			//      state (status, drop_mode), so message[0] needs to
-			//      reflect the new state. Without this the cached
-			//      prepared block would replay the pre-flush version.
-			//   2. pendingMaterialization — guarantees pending ops
-			//      materialize on the next pass even if scheduler
-			//      decides "defer". Without this, /ctx-flush wouldn't
-			//      actually force materialization unless usage already
-			//      crossed the execute threshold (the whole point of
-			//      the command).
-			//   3. systemPromptRefresh — flushing should also re-read
-			//      disk-backed adjuncts (project-docs, user-profile,
-			//      key-files, sticky date). Otherwise an edit to
-			//      ARCHITECTURE.md followed by /ctx-flush leaves the
-			//      stale block until the next natural cache-busting
-			//      turn.
-			signalPiHistoryRefresh(sessionId);
-			signalPiPendingMaterialization(sessionId);
-			signalPiSystemPromptRefresh(sessionId);
+			const { pendingOps: pendingBefore, result } = executeCtxFlush(
+				deps.db,
+				sessionId,
+			);
 
 			const text =
 				pendingBefore > 0

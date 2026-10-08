@@ -145,7 +145,10 @@ import {
 import { registerCtxFlushCommand } from "./commands/ctx-flush";
 import { registerCtxRecompCommand } from "./commands/ctx-recomp";
 import { registerCtxStatusCommand } from "./commands/ctx-status";
-import { registerCtxWrapupCommand } from "./commands/ctx-wrapup";
+import {
+	type RegisterCtxWrapupDeps,
+	registerCtxWrapupCommand,
+} from "./commands/ctx-wrapup";
 import {
 	registerCtxStatusEntryRenderer,
 	registerCtxStatusLifecycleSignal,
@@ -170,6 +173,7 @@ import {
 	signalPiSystemPromptRefreshForProject,
 	trackSessionForProject,
 } from "./context-handler";
+import { registerCtxLifecycleEvents } from "./ctx-lifecycle-events";
 import {
 	markPiChannel1Reduced,
 	maybeChannel1ReminderForToolResult,
@@ -2228,7 +2232,9 @@ async function startPiMagicContextRuntime(
 	});
 	info("registered /ctx-recomp");
 
-	registerCtxWrapupCommand(pi, {
+	// Shared by the slash command and the `magic-context:wrapup` event: both must
+	// run the same action with the same historian model and runtime deps.
+	const wrapupDeps: RegisterCtxWrapupDeps = {
 		shutdownSignal: commandLifecycleController.signal,
 		db,
 		runner: wrapupRunner,
@@ -2278,8 +2284,11 @@ async function startPiMagicContextRuntime(
 				executeThresholdTokens: current.config.execute_threshold_tokens,
 			};
 		},
-	});
+	};
+	registerCtxWrapupCommand(pi, wrapupDeps);
 	info("registered /ctx-wrapup");
+	registerCtxLifecycleEvents(pi, wrapupDeps);
+	info("registered magic-context flush/wrapup lifecycle events");
 
 	registerCtxDreamCommand(pi, {
 		db,

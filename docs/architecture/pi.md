@@ -15,6 +15,7 @@ Read `PARITY.md` before changing anything here that has an OpenCode counterpart.
 - `packages/pi-plugin/src/clone-inheritance.ts`, `packages/plugin/src/features/magic-context/storage-clone.ts`: state inheritance on fork.
 - `packages/pi-plugin/src/subagent-runner.ts`, `subagent-entry.ts`, `pi-historian-runner.ts`, `dreamer/`: hidden-agent execution.
 - `packages/pi-plugin/src/pi-context-refusal.ts`: the refusal guard.
+- `packages/pi-plugin/src/ctx-lifecycle-events.ts`: flush/wrapup request events for other extensions.
 - `packages/pi-plugin/src/ctx-reduce-nudge-pi.ts`, `served-array-ledger.ts`, `provider-error-recovery-pi.ts`, `pi-boot-deadline.ts`.
 - `packages/plugin/src/shared/harness-provider-map.ts`: provider-id translation between OpenCode and Pi model references.
 
@@ -78,6 +79,16 @@ Pi's extension API offers no way to rewrite a `message_update` event. The live-s
 OMP cannot use the live-stream rewrite (the `message_update` edit described above), and the plugin does not register it there. OMP 18.12.x `AgentSession.#emitSessionEvent` notifies its listeners (RPC, TUI) of `message_update` first and queues extension handlers on a microtask afterwards, and its own type docs say text already streamed is not retracted. So on OMP, clients that build replies from deltas still see the prefix; Magic Context cannot change streamed deltas there.
 
 The saved reply on OMP is cleaned through a different hook. OMP 18.12.x hands `message_end` handlers a detached copy of the message (`cloneMessageNotification` in `lifecycle-mirror.ts`), so the in-place `message_end` strip changes nothing there. On OMP only, the plugin registers `registerOmpAssistantMessageStrip` (`strip-tag-prefix.ts`) on OMP's `assistant_message` hook. That hook runs on the finished message before it reaches agent context, `message_end` listeners and persistence. It accepts replacement `content` whose text parts may differ only in `text`. The handler applies the same rule as the `message_end` strip (`stripPersistedAssistantText`), so OMP's session file, its `message_end` frame and its UI show the cleaned reply. Stock Pi 0.87.1 and 1.3.0 have no `assistant_message` event and keep the `message_end` strip unchanged. `strip-tag-prefix-omp-host-order.test.ts` runs a real OMP 18.12.3 session and fails if the saved reply keeps the prefix. It also fails if OMP stops detaching the `message_end` message.
+
+## Lifecycle requests from other extensions
+
+Another extension can ask Magic Context to run the `/ctx-flush` or `/ctx-wrapup` action over Pi's event bus instead of typing the command: `magic-context:flush` and `magic-context:wrapup` (`ctx-lifecycle-events.ts`, registered from `index.ts`; the lean subagent entry registers no events). Each request is answered on `magic-context:flush-result` or `magic-context:wrapup-result` with `status` (`success`, `skipped` or `failed`), a `reason` when it did not succeed, the `sessionId`, and — for flush the pending-op count, for wrapup `messagesWrapped` and `compartmentsWritten`.
+
+The payload is `{ sessionId?: string, messagesToKeep?: number }`. An absent `sessionId` means the active session; a session that is not the currently recorded live one is refused with `no-live-context` rather than run against a stale or another session's context. `messagesToKeep` follows the command's rule (a positive integer, default 20) and anything else is rejected as `invalid-request` before anything runs.
+
+A request executes the same code as the command: `executeCtxFlush` and `runPiWrapupOutcome`. The command renders the returned text, the event reports the outcome fields, so command behaviour and wording are unchanged. Wrapup needs a live Pi context (`sessionManager`, `model`, `cwd`, `getContextUsage`), which an event payload cannot carry, so the context handler records the latest context per session on every pass and `clearContextHandlerSession` drops it on shutdown or session switch. Handlers never throw into the emitter: refusals, malformed payloads and unexpected failures all become result events.
+
+OpenCode 1, OpenCode 2 and the Rust module are not applicable: Magic Context runs alone in those hosts, so there is no in-process peer to ask and no `pi.events` bus.
 
 ## Other Pi-specific pieces
 

@@ -920,6 +920,48 @@ const taggedStableMessageIdsBySession = new Map<string, Set<string>>();
 const taggedEntryHeadersBySession = new Map<string, Map<string, string>>();
 const taggersBySession = new Map<string, Tagger>();
 
+// The latest live Pi context recorded per session, plus the session that produced
+// the most recent one. A `pi.events` consumer (see `ctx-lifecycle-events.ts`)
+// receives an event payload, not a context, so wrapup reuses the context of the
+// session's own last pass rather than accepting one from the caller. Entries
+// drain with the rest of the per-session state in `clearContextHandlerSession`.
+const liveContextBySession = new Map<string, ExtensionContext>();
+let latestLiveContextSessionId: string | undefined;
+
+export function recordPiLiveContext(
+	sessionId: string,
+	ctx: ExtensionContext,
+): void {
+	liveContextBySession.set(sessionId, ctx);
+	latestLiveContextSessionId = sessionId;
+}
+
+/** A live Pi context together with the session it belongs to. */
+export interface PiLiveContext {
+	sessionId: string;
+	ctx: ExtensionContext;
+}
+
+/**
+ * The recorded live context for `sessionId`, or for the session that last ran a
+ * pass when no id is given. `undefined` means the id is unknown or already torn
+ * down — a request must never run against a stale or another session's context.
+ */
+export function resolvePiLiveContext(
+	sessionId?: string,
+): PiLiveContext | undefined {
+	const target = sessionId ?? latestLiveContextSessionId;
+	if (!target) return undefined;
+	const ctx = liveContextBySession.get(target);
+	return ctx ? { sessionId: target, ctx } : undefined;
+}
+
+function clearPiLiveContext(sessionId: string): void {
+	liveContextBySession.delete(sessionId);
+	if (latestLiveContextSessionId === sessionId)
+		latestLiveContextSessionId = undefined;
+}
+
 function recordSuccessfulTaggedMessageIds(
 	sessionId: string,
 	entryIds: readonly (string | undefined)[],
@@ -4370,6 +4412,7 @@ export function registerPiContextHandler(
 			} catch {
 				// A failed getter cannot prove that the provider's cached system bytes changed.
 			}
+			recordPiLiveContext(sessionId, ctx);
 			// Resolve a DB-independent wall before the first storage operation can fail.
 			let piUsage:
 				| ReturnType<NonNullable<ExtensionContext["getContextUsage"]>>
@@ -12150,6 +12193,7 @@ export function clearContextHandlerSession(sessionId: string): void {
 	clearPiLkgSessionState(sessionId);
 	clearPiServedArraySession(sessionId);
 	activeContextHandlerSessions.delete(sessionId);
+	clearPiLiveContext(sessionId);
 	clearAutoSearchForPiSession(sessionId);
 	lastEmergencyNotificationAtMs.delete(sessionId);
 	historyRefreshSessions.delete(sessionId);
