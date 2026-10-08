@@ -1,7 +1,7 @@
 import * as crypto from "node:crypto";
 import type {
 	ExtensionAPI,
-	ExtensionCommandContext,
+	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import {
 	acquireCompartmentLease,
@@ -88,6 +88,36 @@ export type CtxWrapupRuntimeDeps = Omit<
 const DEFAULT_MESSAGES_TO_KEEP = 20;
 const LEASE_WAIT_MS = 1_000;
 const MAX_WRAPUP_LEASE_WAIT_MS = 10 * 60 * 1_000;
+
+export type PiWrapupReason =
+	| "subagent"
+	| "recomp-in-progress"
+	| "wrapup-in-progress"
+	| "nothing-to-wrapup"
+	| "no-runnable-boundary"
+	| "partial";
+
+export interface PiWrapupOutcome {
+	status: "success" | "skipped" | "failed";
+	/** Machine-readable cause for a `skipped` or `failed` outcome. */
+	reason?: PiWrapupReason;
+	messagesWrapped?: number;
+	compartmentsWritten?: number;
+	/** Chat text for the slash command; the fields above are the machine contract. */
+	text: string;
+}
+
+/**
+ * Event-payload form of `parseWrapupArgs`: an absent value keeps the default 20
+ * messages, and anything that is not a positive integer is rejected rather than
+ * coerced. Returns `undefined` for an invalid value.
+ */
+export function normalizeMessagesToKeep(value: unknown): number | undefined {
+	if (value === undefined || value === null) return DEFAULT_MESSAGES_TO_KEEP;
+	return typeof value === "number" && Number.isSafeInteger(value) && value > 0
+		? value
+		: undefined;
+}
 
 type LeaseAcquireResult =
 	| { ok: true; holderId: string }
@@ -205,16 +235,40 @@ export function registerCtxWrapupCommand(
 export async function runPiWrapup(
 	pi: ExtensionAPI,
 	deps: RegisterCtxWrapupDeps,
-	ctx: ExtensionCommandContext,
+	ctx: ExtensionContext,
 	sessionId: string,
 	messagesToKeep: number,
 ): Promise<string> {
+	return (await runPiWrapupOutcome(pi, deps, ctx, sessionId, messagesToKeep))
+		.text;
+}
+
+/**
+ * Shared body of `/ctx-wrapup`: the slash command renders `text`, and the
+ * `magic-context:wrapup` event reports `status`/`reason`/counts. Deliberately
+ * `ExtensionContext`, so a caller without a command context can run it.
+ */
+export async function runPiWrapupOutcome(
+	pi: ExtensionAPI,
+	deps: RegisterCtxWrapupDeps,
+	ctx: ExtensionContext,
+	sessionId: string,
+	messagesToKeep: number,
+): Promise<PiWrapupOutcome> {
 	const sendStatus = createCtxStatusSender(pi, ctx);
 	if (getOrCreateSessionMeta(deps.db, sessionId).isSubagent) {
-		return "## Magic Wrapup — Skipped\n\n/ctx-wrapup is only available in primary sessions.";
+		return {
+			status: "skipped",
+			reason: "subagent",
+			text: "## Magic Wrapup — Skipped\n\n/ctx-wrapup is only available in primary sessions.",
+		};
 	}
 	if (isPiRecompInFlight(sessionId)) {
-		return "## Magic Wrapup — Skipped\n\nA recomp or upgrade is already running for this session. Wait for it to finish, then try `/ctx-wrapup` again.";
+		return {
+			status: "skipped",
+			reason: "recomp-in-progress",
+			text: "## Magic Wrapup — Skipped\n\nA recomp or upgrade is already running for this session. Wait for it to finish, then try `/ctx-wrapup` again.",
+		};
 	}
 
 	const ordinalAlignment = resolvePiOrdinalAlignmentForContext(
@@ -271,10 +325,18 @@ export async function runPiWrapup(
 			messagesToKeep,
 		});
 		if (initialPlan.rawMessagesAboveLastCompartment <= messagesToKeep) {
-			return `## Magic Wrapup\n\nNothing to wrap up — only ${initialPlan.rawMessagesAboveLastCompartment} messages above the last compartment.`;
+			return {
+				status: "skipped",
+				reason: "nothing-to-wrapup",
+				text: `## Magic Wrapup\n\nNothing to wrap up — only ${initialPlan.rawMessagesAboveLastCompartment} messages above the last compartment.`,
+			};
 		}
 		if (!hasRunnableCompartmentWindow(initialPlan.snapshot)) {
-			return `## Magic Wrapup — Partial\n\nNo runnable wrapup boundary is available yet; wrapped up 0 messages into 0 compartments. Run /ctx-wrapup again to continue.`;
+			return {
+				status: "failed",
+				reason: "no-runnable-boundary",
+				text: "## Magic Wrapup — Partial\n\nNo runnable wrapup boundary is available yet; wrapped up 0 messages into 0 compartments. Run /ctx-wrapup again to continue.",
+			};
 		}
 
 		holderId = crypto.randomUUID();
@@ -291,9 +353,13 @@ export async function runPiWrapup(
 			),
 		});
 		if (!acquired.ok) {
-			return formatExistingWrapup(
-				acquired.state ?? getWrapupInProgressState(deps.db, sessionId),
-			);
+			return {
+				status: "skipped",
+				reason: "wrapup-in-progress",
+				text: formatExistingWrapup(
+					acquired.state ?? getWrapupInProgressState(deps.db, sessionId),
+				),
+			};
 		}
 
 		let ownershipLost = false;
@@ -540,14 +606,25 @@ export async function runPiWrapup(
 				finalCompartmentCount - startCompartmentCount,
 			);
 			if (failure) {
-				return `## Magic Wrapup — Partial\n\nWrapped up ${messagesWrapped} messages into ${compartmentsCreated} compartments; ${failure}`;
+				return {
+					status: "failed",
+					reason: "partial",
+					messagesWrapped,
+					compartmentsWritten: compartmentsCreated,
+					text: `## Magic Wrapup — Partial\n\nWrapped up ${messagesWrapped} messages into ${compartmentsCreated} compartments; ${failure}`,
+				};
 			}
 			try {
 				clearEmergencyRecovery(deps.db, sessionId);
 			} catch {
 				// Best-effort: normal historian recovery disarm remains the backstop.
 			}
-			return `## Magic Wrapup\n\nWrapped up ${messagesWrapped} messages into ${compartmentsCreated} compartments. The compacted history is queued and materializes on your next message.`;
+			return {
+				status: "success",
+				messagesWrapped,
+				compartmentsWritten: compartmentsCreated,
+				text: `## Magic Wrapup\n\nWrapped up ${messagesWrapped} messages into ${compartmentsCreated} compartments. The compacted history is queued and materializes on your next message.`,
+			};
 		} finally {
 			clearInterval(renewal);
 			deps.shutdownSignal?.removeEventListener("abort", stopRenewal);
@@ -559,7 +636,7 @@ export async function runPiWrapup(
 }
 
 function resolvePiContextLimit(
-	ctx: ExtensionCommandContext,
+	ctx: ExtensionContext,
 	db: ContextDatabase,
 	sessionId: string,
 ): number {
@@ -633,7 +710,7 @@ function formatExistingWrapup(
  * alignment cannot find its anchor in it) instead of guessing a cut.
  */
 export function readPiWrapupBranchEntries(
-	ctx: Pick<ExtensionCommandContext, "sessionManager">,
+	ctx: Pick<ExtensionContext, "sessionManager">,
 ): unknown[] {
 	const sessionManager = ctx.sessionManager as
 		| { getBranch?: () => unknown }
