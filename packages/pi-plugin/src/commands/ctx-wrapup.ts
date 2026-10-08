@@ -277,7 +277,11 @@ export async function runPiWrapupOutcome(
 		ctx,
 	);
 	if (isPiOrdinalAlignmentUnanchored(ordinalAlignment)) {
-		return `## Magic Wrapup — Skipped\n\nThe stored history boundaries no longer match this session branch (${ordinalAlignment.detail}), so a wrapup cannot place new summaries safely.`;
+		return {
+			status: "failed",
+			reason: "no-runnable-boundary",
+			text: `## Magic Wrapup — Failed\n\nThe stored history boundaries no longer match this session branch (${ordinalAlignment.detail}), so a wrapup cannot place new summaries safely.`,
+		};
 	}
 	const offsetSource = piRawOrdinalOffsetSource(deps.db, sessionId);
 	const provider = {
