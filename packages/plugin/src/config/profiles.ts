@@ -1,5 +1,11 @@
 import { ConfigProfilesSchema } from "./schema/magic-context";
 
+/**
+ * Environment variable a launcher uses to select a config profile for the
+ * process it spawns. Read by the Pi/OMP loader only (see `loadPiConfigDetailed`).
+ */
+export const LAUNCHER_PROFILE_ENV = "MAGIC_CONTEXT_PROFILE";
+
 export interface ProfileResolution {
     /** User config minus the profile declarations and selector. */
     userBase: Record<string, unknown>;
@@ -7,6 +13,12 @@ export interface ProfileResolution {
     projectBase: Record<string, unknown>;
     /** The validated user-owned overlay for the active profile, if any. */
     overlay: Record<string, unknown>;
+    /**
+     * Overlay for the launcher-selected profile (`LAUNCHER_PROFILE_ENV`).
+     * Callers merge this AFTER `projectBase`, so a project config cannot weaken
+     * a launcher-selected policy.
+     */
+    launcherOverlay?: Record<string, unknown>;
     /** The selected profile name, absent when no valid profile is active. */
     activeProfile?: string;
     warnings: string[];
@@ -41,6 +53,12 @@ function readProfileSelection(raw: Record<string, unknown>): ProfileSelection {
 export function resolveConfigProfile(args: {
     userRaw: Record<string, unknown>;
     projectRaw: Record<string, unknown>;
+    /**
+     * Profile named by the launcher (`LAUNCHER_PROFILE_ENV`). Returned as
+     * `launcherOverlay` for the caller to merge last; an unknown name warns and
+     * leaves normal resolution untouched rather than refusing the session.
+     */
+    launcherProfile?: string;
 }): ProfileResolution {
     const warnings: string[] = [];
     const userSelection = readProfileSelection(args.userRaw);
@@ -69,17 +87,39 @@ export function resolveConfigProfile(args: {
             profiles = parsed.data as Record<string, Record<string, unknown>>;
         } else {
             warnings.push(
-                "Ignoring profiles from user config: invalid profile configuration; profiles may contain only historian/dreamer harness model blocks.",
+                "Ignoring profiles from user config: invalid profile configuration; profiles may contain only historian/dreamer harness model blocks and memory.read_only.",
             );
         }
     }
 
+    let launcherOverlay: Record<string, unknown> | undefined;
+    if (args.launcherProfile) {
+        if (Object.hasOwn(profiles, args.launcherProfile)) {
+            launcherOverlay = profiles[args.launcherProfile];
+        } else {
+            const known = Object.keys(profiles).sort();
+            warnings.push(
+                `Unknown ${LAUNCHER_PROFILE_ENV} profile "${args.launcherProfile}"; using normal profile resolution. Known profiles: ${
+                    known.length > 0 ? known.join(", ") : "(none defined in user config)"
+                }.`,
+            );
+        }
+    }
+    const base = {
+        userBase: withoutProfileFields(args.userRaw),
+        projectBase: withoutProfileFields(args.projectRaw),
+        launcherOverlay,
+        warnings,
+    };
+    // The launcher profile is the policy actually in effect, so it owns the
+    // profile identity when it applies.
+    const launcherName = launcherOverlay ? args.launcherProfile : undefined;
+
     if (!selection) {
         return {
-            userBase: withoutProfileFields(args.userRaw),
-            projectBase: withoutProfileFields(args.projectRaw),
+            ...base,
             overlay: {},
-            warnings,
+            activeProfile: launcherName,
         };
     }
 
@@ -88,19 +128,16 @@ export function resolveConfigProfile(args: {
             `Unknown profile "${selection.name}" selected by ${selection.source} config; using base config without a profile.`,
         );
         return {
-            userBase: withoutProfileFields(args.userRaw),
-            projectBase: withoutProfileFields(args.projectRaw),
+            ...base,
             overlay: {},
-            warnings,
+            activeProfile: launcherName,
         };
     }
 
     const overlay = profiles[selection.name];
     return {
-        userBase: withoutProfileFields(args.userRaw),
-        projectBase: withoutProfileFields(args.projectRaw),
+        ...base,
         overlay,
-        activeProfile: selection.name,
-        warnings,
+        activeProfile: launcherName ?? selection.name,
     };
 }

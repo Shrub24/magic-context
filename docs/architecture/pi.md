@@ -90,6 +90,12 @@ A request executes the same code as the command: `executeCtxFlush` and `runPiWra
 
 OpenCode 1, OpenCode 2 and the Rust module are not applicable: Magic Context runs alone in those hosts, so there is no in-process peer to ask and no `pi.events` bus.
 
+## Launcher-selected config profile (fork)
+
+A launcher can start a Pi process with `MAGIC_CONTEXT_PROFILE=<name>`; the named profile's overlay from the user config is applied **after** the project tier, so a project config cannot weaken a launcher-selected policy (`packages/plugin/src/config/profiles.ts`, `packages/pi-plugin/src/config/index.ts`). An unknown name logs a warning and resolves normally. The overlay may set `memory.read_only`.
+
+`memory.read_only` withholds the two tools that write project knowledge — `ctx_memory` and `ctx_note` — from the session's enabled set and refuses them at call time, and turns historian fact promotion off. The derived values live in `packages/plugin/src/config/memory-policy.ts`: `memoryWritesEnabled` (`memory.enabled` and `memory.read_only`) gates `ctx_memory` and promotion, and `notesWritesEnabled` (`memory.read_only` alone) gates `ctx_note`, so `memory.enabled: false` keeps the scope it has today. Compaction and the read surface (`<project-memory>`, memory search, `ctx_search`/`ctx_expand`/`ctx_reduce`) stay on, so a launcher can give a subagent full compaction and search while it writes nothing into project knowledge. OpenCode does not honour the key; its subagent case stays upstream's session-metadata policy (`packages/pi-plugin/PARITY.md` §24).
+
 ## Other Pi-specific pieces
 
 - **Channel 2 nudges** are sent with `pi.sendMessage(..., { deliverAs: "steer", triggerTurn: true })` and `display: false`. During a busy run, `steer` waits for every scheduled tool to finish and injects the nudge before the next model call; when idle, `triggerTurn` starts a turn.

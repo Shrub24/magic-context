@@ -833,6 +833,24 @@ Pi's `memoryToolEnabled` registration flag remains for the lean subagent entry
 (`subagent-entry.ts`) to keep `ctx_memory` off read-only Dreamer tasks, a separate
 security boundary unaffected by the main-session activation behavior.
 
+**Fork seam — `memory.read_only` and `MAGIC_CONTEXT_PROFILE` (fork-only, Pi/OMP
+only).** `MAGIC_CONTEXT_PROFILE` selects a user-config profile by name and applies
+its overlay after the project tier, and that overlay may set `memory.read_only`.
+`memory.read_only` withholds both tools that write project knowledge
+(`ctx_memory` and `ctx_note`) from the enabled set, refuses them at call time, and
+turns historian fact promotion off — the derived values live in
+`packages/plugin/src/config/memory-policy.ts`. The read side keeps
+`memory.enabled`: the `<project-memory>` block, memory search, and
+`ctx_search`/`ctx_expand`/`ctx_reduce` are untouched, so a launcher can give a
+subagent full compaction and search with no writes. `memory.enabled` keeps the
+scope documented above — `ctx_memory` and promotion only — so `ctx_note` still
+works with memory off on both harnesses and this seam adds no divergence.
+**OpenCode does not honour `memory.read_only`**: its subagent case is already
+solved by session metadata (`isSubagent` + `subagent-tool-policy.ts`), and the
+fork keeps one mechanism per harness rather than a second, differently-shaped one.
+An OpenCode session started with a read-only profile still writes memories and
+notes.
+
 ---
 
 ## 25. Pi clone/fork and OpenCode 2 fork inherit session state; OpenCode 1 `/fork` cannot

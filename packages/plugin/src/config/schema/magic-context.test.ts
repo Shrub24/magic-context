@@ -51,6 +51,7 @@ describe("MagicContextConfigSchema", () => {
                 },
                 memory: {
                     enabled: true,
+                    read_only: false,
                     injection_budget_tokens: 4000,
                     auto_promote: true,
                     retrieval_count_promotion_threshold: 3,
@@ -81,6 +82,19 @@ describe("MagicContextConfigSchema", () => {
         expect(
             MagicContextConfigSchema.parse({ todowrite: { enabled: false } }).todowrite.enabled,
         ).toBe(false);
+    });
+
+    it("defaults memory.read_only off and honours an explicit read-only policy", () => {
+        expect(MagicContextConfigSchema.parse({}).memory.read_only).toBe(false);
+        expect(
+            MagicContextConfigSchema.parse({ memory: { read_only: true } }).memory.read_only,
+        ).toBe(true);
+        expect(
+            MagicContextConfigSchema.parse({ memory: { enabled: false } }).memory.read_only,
+        ).toBe(false);
+        expect(MagicContextConfigSchema.safeParse({ memory: { read_only: "yes" } }).success).toBe(
+            false,
+        );
     });
 
     describe("budget configuration", () => {
@@ -160,6 +174,7 @@ describe("MagicContextConfigSchema", () => {
                 },
                 memory: {
                     enabled: true,
+                    read_only: false,
                     injection_budget_tokens: 4000,
                     auto_promote: true,
                     retrieval_count_promotion_threshold: 3,
@@ -387,6 +402,25 @@ describe("MagicContextConfigSchema", () => {
                 { model: "opencode/work-historian-fallback", thinking_level: "inherit" },
             ]);
             expect(result.profiles?.work?.dreamer?.omp?.thinking_level).toBe("inherit");
+        });
+
+        it("admits memory.read_only in a profile and rejects every other memory key", () => {
+            const parsed = MagicContextConfigSchema.parse({
+                profiles: { "readonly-child": { memory: { read_only: true } } },
+            });
+
+            expect(parsed.profiles?.["readonly-child"]?.memory?.read_only).toBe(true);
+
+            for (const rejected of [
+                { work: { memory: { auto_promote: false } } },
+                { work: { memory: { enabled: false } } },
+                { work: { memory: { readonly: true } } },
+                { work: { memory: { read_only: "true" } } },
+            ]) {
+                expect(MagicContextConfigSchema.safeParse({ profiles: rejected }).success).toBe(
+                    false,
+                );
+            }
         });
 
         it("rejects timeout_minutes in a dreamer profile", () => {
