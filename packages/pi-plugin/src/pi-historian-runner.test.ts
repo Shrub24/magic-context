@@ -1,4 +1,5 @@
 import { describe, expect, it, mock, spyOn } from "bun:test";
+import { memoryPromotionEnabled } from "@magic-context/core/config/memory-policy";
 import { acquireCompartmentLease } from "@magic-context/core/features/magic-context/compartment-lease";
 import {
 	appendCompartments,
@@ -1248,6 +1249,24 @@ describe("runPiHistorian", () => {
 			expect(getMemoriesByProject(blocked.db, projectPath)).toEqual([]);
 		} finally {
 			closeQuietly(blocked.db);
+		}
+
+		// `memory.read_only` resolves to exactly this shape: the read side stays on
+		// (compartments still publish), promotion is off.
+		const readOnly = await runHistorianWith({
+			outputs: [successXml("Read-only fact must not be promoted.")],
+			memoryEnabled: true,
+			autoPromote: memoryPromotionEnabled({
+				enabled: true,
+				read_only: true,
+				auto_promote: true,
+			}),
+		});
+		try {
+			expect(getMemoriesByProject(readOnly.db, projectPath)).toEqual([]);
+			expect(getCompartments(readOnly.db, "ses-historian")).toHaveLength(1);
+		} finally {
+			closeQuietly(readOnly.db);
 		}
 	});
 

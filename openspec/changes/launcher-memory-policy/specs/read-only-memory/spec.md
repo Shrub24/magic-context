@@ -29,6 +29,6 @@ Magic Context SHALL accept `memory.read_only` (default `false`), and SHALL treat
 - **WHEN** a session resolves `memory.read_only: false`
 - **THEN** its tools, guidance, prompt bytes and promotion behaviour are unchanged from before this capability existed
 
-#### Scenario: Interaction with `memory.enabled`
-- **WHEN** `memory.enabled` is `false`
-- **THEN** writes are withheld regardless of `memory.read_only`, and the existing no-memory behaviour (no memory block, no memory reads) is preserved
+#### Scenario: `memory.enabled` keeps its existing scope
+- **WHEN** `memory.enabled` is `false` and `memory.read_only` is not set
+- **THEN** `ctx_memory` is withheld and the memory reads stay off exactly as before, `ctx_note` stays available and still writes, and `ctx_note`'s gate is unchanged from before this capability existed
