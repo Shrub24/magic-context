@@ -1,0 +1,19 @@
+schema: spec-driven
+
+context: |
+  Personal fork of cortexkit/magic-context kept rebase-friendly against upstream.
+  Fork goals: (1) lifecycle surfaces/triggers for the ctx-* behaviours that other
+  Pi extensions can consume; (2) a launcher-selectable config profile
+  (MAGIC_CONTEXT_PROFILE) so e.g. subagents get compaction and search without
+  memory ingestion. Every change must state which harnesses it covers (OpenCode 1/2,
+  Pi, OMP, Rust module) or why a harness is not applicable, and must not alter the
+  cache-stability invariants in ARCHITECTURE.md (mc:protected region).
+  Specs capture fork-added behaviour only, not upstream behaviour.
+
+rules:
+  proposal:
+    - State the upstream-conflict risk (files touched that upstream changes often).
+    - List harness coverage explicitly.
+  design:
+    - Prefer extending existing seams (config profiles, hooks) over new mechanisms; justify any new one.
+    - Record rejected alternatives; they go to context/ via keep-the-why.
