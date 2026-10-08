@@ -78,8 +78,9 @@ export function buildMagicContextBlock(
 		opts.cavemanTextCompressionEnabled ?? false,
 		false,
 		opts.language,
-		// Drop ctx_memory guidance when memory is off (the tool is gated via
-		// registerMagicContextTools memoryToolEnabled). ctx_search guidance stays.
+		// Drop ctx_memory guidance when the tool is unavailable — memory is off
+		// (gated via registerMagicContextTools memoryToolEnabled) or the session is
+		// read-only (`memory.read_only`). ctx_search guidance stays.
 		opts.memoryEnabled !== false,
 		opts.promptSurfacePreset,
 		opts.primaryGuidanceOverride,

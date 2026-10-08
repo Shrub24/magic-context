@@ -248,6 +248,10 @@ export interface CtxNoteToolDeps {
 	resolveDreamerEnabled?: (ctx: { cwd: string }) => boolean | undefined;
 	/** Resolve a directory's project identity, allowing home only when user-level configuration enables it. */
 	resolveProjectIdentity?: (directory: string) => string | undefined;
+	/** Resolve the notes policy at call time: `false` refuses the tool before any
+	 *  note is written (`memory.read_only`). `memory.enabled: false` does not
+	 *  withhold notes, so it is not consulted here. */
+	resolveNotesWritesEnabled?: (ctx: { cwd: string }) => boolean | undefined;
 }
 
 export function createCtxNoteTool(
@@ -261,6 +265,11 @@ export function createCtxNoteTool(
 		description: CTX_NOTE_DESCRIPTION,
 		parameters: ParamsSchema,
 		async execute(_toolCallId, params: CtxNoteParams, _signal, _onUpdate, ctx) {
+			if (deps.resolveNotesWritesEnabled?.(ctx) === false) {
+				return err(
+					"Error: ctx_note is unavailable while memory.read_only is set for this session; nothing was written.",
+				);
+			}
 			params = unwrapImitatedReducedArgs(params, ["action", "content"], {
 				action: {
 					type: "enum",

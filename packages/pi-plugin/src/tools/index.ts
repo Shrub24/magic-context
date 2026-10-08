@@ -32,25 +32,41 @@ import { registerTodosCommand } from "./todo-view-pi";
 import { createTodowriteTool } from "./todowrite";
 
 const CTX_MEMORY_TOOL_NAME = "ctx_memory";
+const CTX_NOTE_TOOL_NAME = "ctx_note";
+
+/** Independent gates for the two tools that write project knowledge. */
+export interface MemoryWriteToolGates {
+	/** `memory.enabled` and `memory.read_only`: memories, and fact promotion. */
+	memories: boolean;
+	/** `memory.read_only` only: `memory.enabled: false` never withheld notes. */
+	notes: boolean;
+}
 
 /**
- * Keep Pi's active tool set aligned with the current project's memory policy.
- * The definition stays registered so a later session can re-enable it without
- * restarting the Pi process; the ctx_memory call-time guard remains in place.
+ * Keep Pi's active tool set aligned with the current project's memory write
+ * policy: `memory.read_only` withholds both tools that write project knowledge,
+ * while `memory.enabled: false` withholds only `ctx_memory`. The read surface —
+ * `ctx_search`, `ctx_expand`, `ctx_reduce` — is untouched. Definitions stay
+ * registered so a later session can re-enable them without restarting the Pi
+ * process; the tools' call-time guards stay in place.
  */
-export function syncCtxMemoryToolEnabled(
+export function syncMemoryWriteToolsEnabled(
 	pi: Pick<ExtensionAPI, "getActiveTools" | "setActiveTools">,
-	memoryEnabled: boolean,
+	gates: MemoryWriteToolGates,
 ): void {
+	const wanted = new Map<string, boolean>([
+		[CTX_MEMORY_TOOL_NAME, gates.memories],
+		[CTX_NOTE_TOOL_NAME, gates.notes],
+	]);
 	const activeTools = pi.getActiveTools();
-	const isActive = activeTools.includes(CTX_MEMORY_TOOL_NAME);
-	if (memoryEnabled === isActive) return;
-
-	pi.setActiveTools(
-		memoryEnabled
-			? [...activeTools, CTX_MEMORY_TOOL_NAME]
-			: activeTools.filter((toolName) => toolName !== CTX_MEMORY_TOOL_NAME),
-	);
+	const next = activeTools.filter((name) => wanted.get(name) !== false);
+	for (const [name, enabled] of wanted) {
+		if (enabled && !next.includes(name)) next.push(name);
+	}
+	const changed =
+		next.length !== activeTools.length ||
+		next.some((name, index) => name !== activeTools[index]);
+	if (changed) pi.setActiveTools(next);
 }
 
 export interface RegisterToolsOptions {
@@ -85,6 +101,14 @@ export interface RegisterToolsOptions {
 	expandTools?: Record<string, string | false>;
 	/** When false, omit ctx_memory from the registered surface. */
 	memoryToolEnabled?: boolean;
+	/** Resolve the write-side memory policy for the current directory: `false`
+	 *  withholds and refuses `ctx_memory` (`memory.enabled: false` or
+	 *  `memory.read_only`). Read-side tools and the memory block keep using
+	 *  `memoryEnabled`. */
+	resolveMemoryWritesEnabled?: (ctx: { cwd: string }) => boolean | undefined;
+	/** Resolve the notes policy for the current directory: `false` withholds and
+	 *  refuses `ctx_note` (`memory.read_only` only). */
+	resolveNotesWritesEnabled?: (ctx: { cwd: string }) => boolean | undefined;
 	/** When true, omit session-scoped tools (ctx_note, ctx_expand) from the
 	 *  registered surface. Set by `--no-session` Dreamer children:
 	 *  those tools resolve `ctx.sessionManager.getSessionId()` to the EPHEMERAL
@@ -158,6 +182,7 @@ export function registerMagicContextTools(
 			embeddingEnabled: opts.embeddingEnabled,
 			allowDreamerActions: opts.allowDreamerActions ?? false,
 			resolveProjectIdentity,
+			resolveMemoryWritesEnabled: opts.resolveMemoryWritesEnabled,
 		};
 		pi.registerTool(surfaceTool(createCtxMemoryTool(memoryDeps)));
 		if (opts.allowDreamerActions === true) {
@@ -180,6 +205,7 @@ export function registerMagicContextTools(
 					dreamerEnabled: opts.dreamerEnabled ?? false,
 					resolveDreamerEnabled: opts.resolveDreamerEnabled,
 					resolveProjectIdentity,
+					resolveNotesWritesEnabled: opts.resolveNotesWritesEnabled,
 				}),
 			),
 		);

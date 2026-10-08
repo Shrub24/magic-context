@@ -453,14 +453,24 @@ const ProfileDreamerSchema = z
     })
     .strict();
 
+/** A profile may carry only the memory policy keys a launcher needs to scope a
+ *  session; every other `memory.*` key stays out of profiles, and `.strict()`
+ *  keeps a typo an error rather than a silently ignored override. */
+const ProfileMemorySchema = z
+    .object({
+        read_only: z.boolean().optional(),
+    })
+    .strict();
+
 export const ConfigProfileSchema = z
     .object({
         historian: ProfileHistorianSchema.optional(),
         dreamer: ProfileDreamerSchema.optional(),
+        memory: ProfileMemorySchema.optional(),
     })
     .strict()
     .describe(
-        "User-owned model-selection overlay. Only historian/dreamer harness model blocks are allowed.",
+        "User-owned overlay: historian/dreamer harness model blocks plus memory.read_only. No other key class is allowed.",
     );
 export type ConfigProfile = z.infer<typeof ConfigProfileSchema>;
 
@@ -1075,6 +1085,9 @@ export interface MagicContextConfig {
     shadow_embedding?: ShadowEmbeddingConfig;
     memory: {
         enabled: boolean;
+        /** Read-only policy: reads stay on, ctx_memory/ctx_note and historian
+         *  fact promotion are withheld. Pi/OMP only (see the schema field). */
+        read_only: boolean;
         injection_budget_tokens: number;
         auto_promote: boolean;
         retrieval_count_promotion_threshold: number;
@@ -1173,7 +1186,7 @@ export const MagicContextConfigSchema = z
                 "Select a named user-owned model profile. A valid project name overrides this user default; an empty string, null, or other non-string project value is ignored with a warning so the user selection still applies. Unknown names warn and use the base configuration.",
             ),
         profiles: ConfigProfilesSchema.optional().describe(
-            "User-level named model profiles. A profile may contain only historian/dreamer model, fallback_models, OpenCode variant, and Pi/OMP thinking_level fields; task execution policy (including timeout_minutes) is excluded. Project configs may select a name but cannot define profiles.",
+            "User-level named model profiles. A profile may contain only historian/dreamer model, fallback_models, OpenCode variant, and Pi/OMP thinking_level fields, plus memory.read_only; task execution policy (including timeout_minutes) is excluded. Project configs may select a name but cannot define profiles.",
         ),
         historian: HistorianConfigSchema.describe(
             "Historian metadata plus independent strict OpenCode, Pi, and OMP execution blocks. Retained metadata stays at historian; model, fallback_models, variant, and thinking_level belong only in historian.opencode, historian.pi, or historian.omp.",
@@ -1489,6 +1502,12 @@ export const MagicContextConfigSchema = z
                     .describe(
                         "Enable cross-session memory (default: true). Does not affect history embedding or semantic ctx_search over session history; set embedding.provider to 'off' to stop all embedding.",
                     ),
+                read_only: z
+                    .boolean()
+                    .default(false)
+                    .describe(
+                        "Read project knowledge but never write it (default: false): ctx_memory and ctx_note are withheld and refused, and historian fact promotion is off. The <project-memory> block, ctx_search memory results and memory embeddings are unaffected. memory.enabled keeps its existing scope (it is not consulted for ctx_note). Honoured on Pi and OMP only — OpenCode keeps upstream's primary-only tool policy for subagents, so a project setting here is inert there. Put it in a config profile and select that profile with MAGIC_CONTEXT_PROFILE to scope it to a launcher's session.",
+                    ),
                 injection_budget_tokens: z
                     .number()
                     .min(500)
@@ -1571,6 +1590,7 @@ export const MagicContextConfigSchema = z
             })
             .default({
                 enabled: true,
+                read_only: false,
                 injection_budget_tokens: 4000,
                 auto_promote: true,
                 retrieval_count_promotion_threshold: 3,
