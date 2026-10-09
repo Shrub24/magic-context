@@ -3,8 +3,8 @@ This is machine-readable project state for the Keep the Why skill
 README, for what Keep the Why actually is.
 
 <!-- keep-the-why:config -->
-- id: cortexkit---magic-context
-- canonical: https://github.com/cortexkit/magic-context
+- id: shrub24---magic-context
+- canonical: https://github.com/Shrub24/magic-context
 - context: `context/`
 - init: complete
 - context-schema: 0.19.0
