@@ -1,0 +1,45 @@
+name: Nix
+
+# Builds the flake's packages and checks Nix formatting. Whether nix/bun.nix
+# matches bun.lock is checked in CI's check-plugin job instead, which needs no
+# Nix and runs on every push.
+on:
+  push:
+    branches: [master, main, "train/**"]
+    paths:
+      - "flake.nix"
+      - "flake.lock"
+      - "nix/**"
+      - "package.json"
+      - "bun.lock"
+      - "bunfig.toml"
+      - "scripts/**"
+      - "packages/plugin/**"
+      - "packages/pi-plugin/**"
+      - "packages/retina-local-fs/**"
+      - ".github/workflows/nix.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: nix-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/master' && github.ref != 'refs/heads/main' }}
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  flake:
+    name: Nix flake
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: cachix/install-nix-action@v31
+
+      - name: Format
+        run: nix fmt -- --ci
+
+      # Builds pi-magic-context and checks the update:nix bun2nix pin.
+      - name: Flake check
+        run: nix flake check --print-build-logs

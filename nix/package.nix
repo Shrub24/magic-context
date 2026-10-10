@@ -19,21 +19,36 @@ stdenvNoCC.mkDerivation (finalAttrs: {
   pname = "pi-magic-context";
   inherit (packageJson) version;
 
-  # Only what the build reads, so docs, dashboard, Rust and e2e edits do not
-  # rebuild the package. Every workspace manifest stays in: a frozen install
-  # checks the whole bun.lock workspace graph, even when filtered.
+  # Leave out what the build never reads, so edits there do not rebuild the
+  # package. This lists exclusions rather than inputs: a new build input
+  # upstream is picked up, and a stale entry only costs a rebuild. Workspace
+  # manifests stay in: a frozen install checks the whole bun.lock graph.
   src = lib.fileset.toSource {
     root = ../.;
     fileset = lib.fileset.unions [
-      ../package.json
-      ../bun.lock
-      ../bunfig.toml
-      ../scripts/check-bun.mjs
-      ../scripts/clean-dist-chunks.mjs
+      (lib.fileset.difference ../. (
+        lib.fileset.unions (
+          map lib.fileset.maybeMissing [
+            ../.github
+            ../assets
+            ../context
+            ../crates
+            ../docs
+            ../gate-evidence
+            ../packages/cli
+            ../packages/dashboard
+            ../packages/docs
+            ../packages/e2e-tests
+            ../testdata
+            ../tests
+            ../watermark
+            ../flake.nix
+            ../flake.lock
+            ./.
+          ]
+        )
+      ))
       (lib.fileset.fileFilter (file: file.name == "package.json") ../packages)
-      ../packages/plugin
-      ../packages/pi-plugin
-      ../packages/retina-local-fs
     ];
   };
 

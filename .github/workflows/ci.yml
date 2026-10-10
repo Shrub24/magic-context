@@ -90,6 +90,12 @@ jobs:
       - name: Check compiled TUI freshness
         run: bun run --cwd packages/plugin check:tui-compiled
 
+      # nix/bun.nix mirrors bun.lock for the Nix flake. Regenerating it needs
+      # only Bun, so a dependency change fails here, with the fix (`bun run
+      # update:nix`) in reach of every contributor, not in the Nix workflow.
+      - name: Check nix/bun.nix freshness
+        run: bun run check:nix
+
       # The historian prompt golden is the byte-parity contract between the
       # TypeScript historian renderer and the Rust mc-module port. The Rust
       # golden test pins the committed file from the Rust side, but only this

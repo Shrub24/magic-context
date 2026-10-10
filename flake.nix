@@ -1,5 +1,5 @@
 {
-  description = "Magic Context (Shrub24 fork): Nix packaging for the Pi/OMP extension";
+  description = "Magic Context: cross-session memory and context management for coding agents";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
@@ -38,55 +38,35 @@
         default = self.packages.${pkgs.stdenv.hostPlatform.system}.pi-magic-context;
       });
 
-      checks = eachSystem (pkgs: {
-        inherit (self.packages.${pkgs.stdenv.hostPlatform.system}) pi-magic-context;
+      checks = eachSystem (
+        pkgs:
+        let
+          inherit (bun2nixFor pkgs) version;
+          updateScript = (lib.importJSON ./package.json).scripts."update:nix";
+        in
+        {
+          inherit (self.packages.${pkgs.stdenv.hostPlatform.system}) pi-magic-context;
 
-        # nix/bun.nix is generated from bun.lock; fail when an upstream sync
-        # moves the lockfile without regenerating it.
-        bun-nix-up-to-date =
-          pkgs.runCommand "bun-nix-up-to-date"
-            {
-              nativeBuildInputs = [
-                (bun2nixFor pkgs)
-                pkgs.nixfmt
-              ];
-            }
-            ''
-              bun2nix --lock-file ${./bun.lock} --copy-prefix ../ | nixfmt | diff -u ${./nix/bun.nix} - \
-                || { echo "nix/bun.nix is stale; run: nix run .#update-bun-nix" >&2; exit 1; }
-              touch $out
+          # `bun run update:nix` generates nix/bun.nix with bun2nix from npm;
+          # it must match the bun2nix that consumes the file here.
+          bun2nix-version-pin =
+            assert lib.assertMsg (lib.hasInfix "bun2nix@${version} " updateScript) ''
+              The update:nix script in package.json must pin bun2nix@${version}, the
+              version in flake.lock. Update the pin, then run `bun run update:nix`.
             '';
-      });
-
-      apps = eachSystem (pkgs: {
-        update-bun-nix = {
-          type = "app";
-          program = lib.getExe (
-            pkgs.writeShellApplication {
-              name = "update-bun-nix";
-              runtimeInputs = [
-                (bun2nixFor pkgs)
-                pkgs.git
-                pkgs.nixfmt
-              ];
-              text = ''
-                root=$(git rev-parse --show-toplevel)
-                bun2nix --lock-file "$root/bun.lock" --copy-prefix ../ | nixfmt > "$root/nix/bun.nix"
-              '';
-            }
-          );
-          meta.description = "Regenerate nix/bun.nix from bun.lock";
-        };
-      });
+            pkgs.emptyFile;
+        }
+      );
 
       devShells = eachSystem (pkgs: {
         default = pkgs.mkShell {
           packages = [
             pkgs.bun
-            pkgs.nodejs_22
+            pkgs.nodejs_24
             pkgs.cargo
             pkgs.rustc
-            (bun2nixFor pkgs)
+            pkgs.clippy
+            pkgs.rustfmt
           ];
         };
       });
