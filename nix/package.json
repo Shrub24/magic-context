@@ -1,0 +1,9 @@
+{
+  "name": "magic-context-pi-nix",
+  "private": true,
+  "workspaces": [
+    "../packages/plugin",
+    "../packages/pi-plugin",
+    "../packages/retina-local-fs"
+  ]
+}
