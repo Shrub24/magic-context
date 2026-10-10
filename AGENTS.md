@@ -14,4 +14,5 @@ Personal fork of cortexkit/magic-context (`origin` = Shrub24, `upstream` = corte
 - VCS is jj (colocated git); use the `jj` skill. Sync upstream with `jj git fetch --remote upstream`.
 - Behaviour changes go through OpenSpec (`openspec/`): propose, then apply. Specs describe fork capabilities only. `openspec/` is local-only — it is excluded through `.git/info/exclude`, so the change and spec records stay on disk but out of the repository.
 - Rationale that code cannot explain goes in `context/` via the `keep-the-why` skill.
+- Nix packaging is fork-only (`flake.nix`, `nix/`): `nix build` gives the Pi/OMP extension (`passthru.extensionPath`). `nix/bun.nix` is generated from `bun.lock`; after an upstream sync run `nix run .#update-bun-nix` (`nix flake check` fails while it is stale).
 - Verify with `bun run typecheck`, `bun run lint`, and package tests (`bun run --cwd packages/<pkg> test`); Rust with `cargo test --workspace`. Rebuild dists with `bun run build:dists` after schema/migration changes.

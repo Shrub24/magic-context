@@ -613,7 +613,10 @@
     url = "https://registry.npmjs.org/@cortexkit/claustrum-client/-/claustrum-client-0.5.0.tgz";
     hash = "sha512-+mRG/h3YZufrEs1p12W+Y+NSnWIUiBcpppMTgFA5tAQ7t8WIWoMEmn0Mf7Cp8251SKChW8dN3xOZqEM7N6gyAg==";
   };
+  "@cortexkit/magic-context" = copyPathToStore ../packages/cli;
+  "@cortexkit/magic-context-dashboard" = copyPathToStore ../packages/dashboard;
   "@cortexkit/opencode-magic-context" = copyPathToStore ../packages/plugin;
+  "@cortexkit/opencode-magic-context-e2e" = copyPathToStore ../packages/e2e-tests;
   "@cortexkit/pi-magic-context" = copyPathToStore ../packages/pi-plugin;
   "@cortexkit/retina-local-fs" = copyPathToStore ../packages/retina-local-fs;
   "@cortexkit/subc-client@0.11.1" = fetchurl {
@@ -1348,6 +1351,7 @@
     url = "https://registry.npmjs.org/@kurkle/color/-/color-0.3.4.tgz";
     hash = "sha512-M5UknZPHRu3DEDWoipU6sE8PdkZ6Z/S+v4dD+Ke8IaNlpdSQah50lz1KtcFBa2vsdOnwbbnxJwVM4wty6udA5w==";
   };
+  "@magic-context/docs" = copyPathToStore ../packages/docs;
   "@mariozechner/clipboard-darwin-arm64@0.3.9" = fetchurl {
     url = "https://registry.npmjs.org/@mariozechner/clipboard-darwin-arm64/-/clipboard-darwin-arm64-0.3.9.tgz";
     hash = "sha512-BfgV7vCEWZwJwZJw03r6bP5+tf0iI/ANuQYCxi9RNn7FrWB3yzGuMKCrNLRl6V761vXRdL8+OqZ0wd4TqlsNOQ==";
