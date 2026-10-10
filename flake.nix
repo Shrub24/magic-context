@@ -15,6 +15,8 @@
       packages = forAllSystems (system:
         let
           pkgs = import nixpkgs { inherit system; };
+          # The pinned Bun2Nix 2.1.2 parser rejects lockfileVersion 2; bun.nix
+          # is generated from nix/bun.lock with only that marker changed to 1.
           bunNix = import ./nix/bun.nix;
           source = self;
         in {
@@ -22,22 +24,27 @@
             pname = "pi-magic-context";
             version = (builtins.fromJSON (builtins.readFile ./packages/pi-plugin/package.json)).version;
             src = source;
-            nativeBuildInputs = [ bun2nix.packages.${system}.default pkgs.bun ];
+            nativeBuildInputs = [ bun2nix.packages.${system}.default.passthru.hook pkgs.bun ];
             bunRoot = "nix";
+            bunInstallFlags = if pkgs.stdenv.hostPlatform.isDarwin then [
+              "--linker=hoisted"
+              "--backend=copyfile"
+            ] else [ "--linker=hoisted" ];
             bunDeps = bun2nix.packages.${system}.default.passthru.fetchBunDeps { inherit bunNix; };
             dontUseBunBuild = true;
             dontUseBunCheck = true;
             dontFixup = true;
             buildPhase = ''
               runHook preBuild
-              cd ..
-              bun run build
-              cd packages/pi-plugin
-              bun run build
+              ln -s nix/node_modules node_modules
+              bun scripts/check-bun.mjs
+              bun run --cwd packages/plugin build
+              bun run --cwd packages/pi-plugin build
               runHook postBuild
             '';
             installPhase = ''
               runHook preInstall
+              cd packages/pi-plugin
               mkdir -p "$out"
               cp -R dist "$out/dist"
               cp package.json "$out/package.json"
