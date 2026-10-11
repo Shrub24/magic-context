@@ -4,9 +4,14 @@
  * the outcome, without a command context of its own.
  *
  * Each request is answered on `magic-context:flush-result` /
- * `magic-context:wrapup-result`. Handlers never throw into the emitter: an
- * invalid payload, a refusal or a failure all become a result event. Nothing runs
- * unless a request arrives.
+ * `magic-context:wrapup-result`. For flush, `success` means the pending state was
+ * flushed and refresh signals were set; it does not await the next `context`
+ * hook. That hook applies message/history changes to the upcoming request. The
+ * separate system-adjunct refresh signal is consumed by `before_agent_start`, so
+ * a same-turn native retry/continuation does not re-read project docs, user
+ * memories, or key files. Handlers never throw into the emitter: an invalid
+ * payload, a refusal or a failure all become a result event. Nothing runs unless
+ * a request arrives.
  *
  * Registered from `index.ts` only. Subagents load `subagent-entry.ts`, which
  * never wires event handlers.
@@ -33,7 +38,8 @@ export interface CtxFlushResultEvent {
 	sessionId?: string;
 	status: CtxLifecycleStatus;
 	/**
-	 * `invalid-request`, `no-live-context`, `compaction-off` or `flush-failed`.
+	 * `invalid-request`, `no-live-context` (only when the request names no session
+	 * and none is live), `compaction-off` or `flush-failed`.
 	 */
 	reason?: string;
 	pendingOps?: number;
@@ -102,10 +108,14 @@ export function registerCtxLifecycleEvents(
 			});
 			return;
 		}
-		const live = resolvePiLiveContext(parsed.request.sessionId);
-		if (!live) {
+		// A flush needs only the session id and the database, so a named session
+		// flushes without a live context: a freshly started or resumed Pi process
+		// has none until its first request. Only an omitted id still needs one,
+		// to name the session that last ran a pass.
+		const sessionId =
+			parsed.request.sessionId ?? resolvePiLiveContext()?.sessionId;
+		if (!sessionId) {
 			emit(FLUSH_RESULT_EVENT, {
-				sessionId: parsed.request.sessionId,
 				status: "skipped",
 				reason: "no-live-context",
 			});
@@ -113,16 +123,16 @@ export function registerCtxLifecycleEvents(
 		}
 		if (deps.compactionOff) {
 			emit(FLUSH_RESULT_EVENT, {
-				sessionId: live.sessionId,
+				sessionId,
 				status: "skipped",
 				reason: "compaction-off",
 			});
 			return;
 		}
-		const { pendingOps, result } = executeCtxFlush(deps.db, live.sessionId);
+		const { pendingOps, result } = executeCtxFlush(deps.db, sessionId);
 		const failed = result.startsWith("Error:");
 		emit(FLUSH_RESULT_EVENT, {
-			sessionId: live.sessionId,
+			sessionId,
 			status: failed ? "failed" : "success",
 			...(failed ? { reason: "flush-failed" } : {}),
 			pendingOps,

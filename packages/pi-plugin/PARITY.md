@@ -1156,9 +1156,13 @@ assertion, and the same session ID through the OMP restart.
 run the same code as `/ctx-flush` and `/ctx-wrapup` and answer on
 `magic-context:flush-result` / `magic-context:wrapup-result`
 (`ctx-lifecycle-events.ts`, registered from `index.ts` only). An event payload
-carries no context, so wrapup reuses the context recorded for that session's own
-last pass and refuses with `no-live-context` when the named session is not the
-live one; a session switch or shutdown drops the record.
+carries no context. Flush needs only the session id and the database, so a named
+session flushes before any context exists (a freshly started or resumed process),
+and its refresh signals are set before the emit returns. Wrapup needs the live
+context recorded for that session's own last pass, so it refuses with
+`no-live-context` when the named session is not the live one; a session switch or
+shutdown drops the record. Either flush form refuses with `no-live-context` only
+when it names no session and none is live.
 
 **OpenCode 1, OpenCode 2, Rust module:** not applicable. Those hosts run Magic
 Context as their only extension, so there is no in-process peer to ask and no
@@ -1183,3 +1187,7 @@ Historian admission reads primary/fallback windows from the live Pi/OMP model re
 The full Pi suite initially reported 1,193 pass / 3 skip / 31 fail. The affected 344-test groups subsequently reported 340 pass / 4 fail, and the four remaining nested-historian cases passed after their mock window observations were supplied. The environment-only OMP/home and smart-note checks passed without product changes. Pi typecheck passed. No second full suite was run, as requested.
 
 Tail-hygiene parity is active. Persisted `last_nudge_undropped` and `last_nudge_level.postReduceGraceBaselineU` convert once at the stamped bust; `growthThreshold` is derived from calibrated T. No SQL column, migration, sidecar or fence change was added.
+
+## Fork-only Pi cache TTL override
+
+Pi may set user-level `pi.cache_ttl` to control its independent idle-TTL scheduler; when absent, Pi falls back to root `cache_ttl`. Project-level `pi.cache_ttl` is ignored. OMP and OpenCode continue using the root TTL, so the shared OpenCode policy is unchanged. `pi.cache_ttl = "never"` disables only the idle-TTL trigger: configured pressure thresholds still execute normally.

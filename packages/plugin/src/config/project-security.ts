@@ -354,8 +354,11 @@ function makeProjectThresholdWarning(field: string, reason: string): string {
  *    provider account. `host_runner` is stripped for the same reason in the other
  *    direction: a repo must not switch this machine's pull loop on and start
  *    spending the user's provider account on folds.
- *  - `pi.subagent_extensions` — a cloned repo must not choose which extensions
- *    the user's Pi child processes load.
+ *  - `mural.model` at the top-level block, the legacy experimental spelling,
+ *    and any nested `mural.model` under hidden agents — a cloned repo cannot
+ *    choose where project memory is sent.
+ *  - `pi.subagent_extensions` and `pi.cache_ttl` — a cloned repo must not choose
+ *    which extensions the user's Pi child processes load or set Pi's idle-TTL policy.
  *  - `prompt_surface.guidance_override_path` / `tool_descriptions` — a repository
  *    may select a reviewed preset, but must not inject arbitrary guidance or tool
  *    description text into the user's provider-visible prompt.
@@ -487,6 +490,12 @@ export function stripUnsafeProjectConfigFields(projectRaw: Record<string, unknow
         delete pi.subagent_extensions;
         warnings.push(
             "Ignoring pi.subagent_extensions from project config (security: only user-level config may choose extensions loaded by Pi subagent children).",
+        );
+    }
+    if (isPlainObject(pi) && "cache_ttl" in pi) {
+        delete pi.cache_ttl;
+        warnings.push(
+            "Ignoring pi.cache_ttl from project config (security: only user-level config may set Pi's idle-TTL policy).",
         );
     }
 

@@ -190,6 +190,49 @@ describe("magic-context:flush", () => {
 		}
 	});
 
+	it("flushes a named session before any live context exists, synchronously", async () => {
+		const db = createDb();
+		try {
+			const sessionId = session("pi-lifecycle-flush-fresh");
+			const tagId = insertTag(db, sessionId, "message-1", "message", 20, 1);
+			queuePendingOp(db, sessionId, tagId, "drop");
+			const { pi, request, result } = createMockPi();
+			registerCtxLifecycleEvents(pi, deps(db));
+
+			// No recordPiLiveContext: a freshly started or resumed process.
+			request(FLUSH_REQUEST_EVENT, { sessionId });
+
+			// Flush-before-dispatch: the signals are set before the emit returns.
+			expect(
+				contextHandlerInternals.variantRefreshStateForTests(sessionId),
+			).toEqual({ history: true, systemPrompt: true, materialization: true });
+			expect(await result(FLUSH_RESULT_EVENT)).toEqual({
+				sessionId,
+				status: "success",
+				pendingOps: 1,
+			});
+		} finally {
+			closeQuietly(db);
+		}
+	});
+
+	it("refuses a flush that names no session when none is live", async () => {
+		const db = createDb();
+		try {
+			const { pi, request, result } = createMockPi();
+			registerCtxLifecycleEvents(pi, deps(db));
+
+			request(FLUSH_REQUEST_EVENT);
+
+			expect(await result(FLUSH_RESULT_EVENT)).toEqual({
+				status: "skipped",
+				reason: "no-live-context",
+			});
+		} finally {
+			closeQuietly(db);
+		}
+	});
+
 	it("skips a flush when compaction is off and leaves the queue untouched", async () => {
 		const db = createDb();
 		try {
