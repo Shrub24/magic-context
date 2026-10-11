@@ -40,12 +40,12 @@ export function executeCtxFlush(
 	//      actually force materialization unless usage already
 	//      crossed the execute threshold (the whole point of
 	//      the command).
-	//   3. systemPromptRefresh — flushing should also re-read
-	//      disk-backed adjuncts (project-docs, user-profile,
-	//      key-files, sticky date). Otherwise an edit to
-	//      ARCHITECTURE.md followed by /ctx-flush leaves the
-	//      stale block until the next natural cache-busting
-	//      turn.
+	//   3. systemPromptRefresh — marks disk-backed adjuncts
+	//      (project-docs, user-profile, key-files, sticky date)
+	//      for re-read by `before_agent_start`. This is a separate
+	//      hook from `context`, so it does not refresh the system
+	//      prompt during a same-turn native retry/continuation; the
+	//      refresh remains pending for the next agent start.
 	signalPiHistoryRefresh(sessionId);
 	signalPiPendingMaterialization(sessionId);
 	signalPiSystemPromptRefresh(sessionId);

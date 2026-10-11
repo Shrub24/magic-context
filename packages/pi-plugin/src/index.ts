@@ -159,7 +159,11 @@ import {
 	registerCtxStatusLifecycleSignal,
 	resolveSessionId,
 } from "./commands/pi-command-utils";
-import { loadPiConfig, loadPiConfigDetailed } from "./config";
+import {
+	loadPiConfig,
+	loadPiConfigDetailed,
+	resolvePiCacheTtlConfig,
+} from "./config";
 import {
 	abortInFlightHistorians,
 	awaitInFlightHistorians,
@@ -1559,8 +1563,7 @@ async function startPiMagicContextRuntime(
 		auto: PiAutoSearchHandlerOptions,
 	): PiContextHandlerOptions => ({
 		db: database,
-		cacheTtlConfig: cfg.cache_ttl,
-		cacheTtlConfigured: cfg.cacheTtlConfigured,
+		...resolvePiCacheTtlConfig(cfg, PI_HARNESS_KIND),
 		protectedTools: cfg.protected_tools,
 		protectedTokens: cfg.protected_tokens,
 		protectedTokenTierOverrides: getProtectedTokensTierOverrides(cfg) ?? {},

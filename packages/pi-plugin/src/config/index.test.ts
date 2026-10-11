@@ -14,7 +14,11 @@ import { buildDreamTaskRuntimeConfigs } from "@magic-context/core/features/magic
 import { resolveEpochFloorForPass } from "@magic-context/core/features/magic-context/storage-meta-persisted";
 import { Database } from "@magic-context/core/shared/sqlite";
 import { createTestTempDirFromPath } from "../../../plugin/src/shared/test-temp-dir";
-import { loadPiConfig, loadPiConfigDetailed } from "./index";
+import {
+	loadPiConfig,
+	loadPiConfigDetailed,
+	resolvePiCacheTtlConfig,
+} from "./index";
 
 const tempRoots: string[] = [];
 const originalHome = process.env.HOME;
@@ -1049,6 +1053,32 @@ describe("loadPiConfig — project config cannot reset user settings", () => {
 		expect(result.config.execute_threshold_percentage).toBe(80);
 		expect(result.config.execute_threshold_tokens).toEqual({
 			default: 300_000,
+		});
+	});
+
+	it("uses the Pi TTL override only for Pi and leaves the root policy for OMP", () => {
+		const result = load(
+			{ cache_ttl: "30m", pi: { cache_ttl: "never" } },
+			{ cache_ttl: "10m" },
+		);
+		expect(result.config.cache_ttl).toBe("10m");
+		expect(resolvePiCacheTtlConfig(result.config, "pi")).toEqual({
+			cacheTtlConfig: "never",
+			cacheTtlConfigured: true,
+		});
+		expect(resolvePiCacheTtlConfig(result.config, "omp")).toEqual({
+			cacheTtlConfig: "10m",
+			cacheTtlConfigured: true,
+		});
+	});
+
+	it("ignores project pi.cache_ttl and falls back to the root value when absent", () => {
+		const result = load({ cache_ttl: "30m" }, { pi: { cache_ttl: "1m" } });
+		expect(result.config.pi?.cache_ttl).toBeUndefined();
+		expect(result.warnings.join("\n")).toContain("Ignoring pi.cache_ttl");
+		expect(resolvePiCacheTtlConfig(result.config, "pi")).toEqual({
+			cacheTtlConfig: "30m",
+			cacheTtlConfigured: true,
 		});
 	});
 });

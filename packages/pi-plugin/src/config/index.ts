@@ -45,9 +45,27 @@ import {
 } from "@magic-context/core/shared/jsonc-parser";
 import { setOutputReserveConfig } from "@magic-context/core/shared/models-dev-cache";
 import type { PromptSurfaceConfig } from "@magic-context/core/shared/prompt-surface";
+import type { PiHarnessKind } from "../pi-harness-kind";
 
 export interface LoadPiConfigOptions {
 	cwd?: string;
+}
+
+export function resolvePiCacheTtlConfig(
+	config: MagicContextConfig,
+	harness: PiHarnessKind,
+): {
+	cacheTtlConfig: MagicContextConfig["cache_ttl"];
+	cacheTtlConfigured: boolean;
+} {
+	const piOverride = harness === "pi" ? config.pi?.cache_ttl : undefined;
+	if (piOverride !== undefined) {
+		return { cacheTtlConfig: piOverride, cacheTtlConfigured: true };
+	}
+	return {
+		cacheTtlConfig: config.cache_ttl,
+		cacheTtlConfigured: config.cacheTtlConfigured === true,
+	};
 }
 
 export interface LoadPiConfigResult {
