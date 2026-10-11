@@ -48,10 +48,18 @@ export const OmpThinkingLevelSchema = z
     .optional();
 export type OmpThinkingLevel = z.infer<typeof OmpThinkingLevelSchema>;
 
-/** Pi-only child-process controls. This block is intentionally optional so an
- * absent allowlist preserves Pi's normal extension discovery behavior. */
+/** Root and Pi-specific scheduler TTL settings accept the same scalar or model map. */
+const CacheTtlConfigSchema = z.union([
+    z.string(),
+    z.object({ default: z.string() }).catchall(z.string()),
+]);
+
+/** Pi-only scheduler and child-process controls. */
 export const PiConfigSchema = z
     .object({
+        cache_ttl: CacheTtlConfigSchema.optional().describe(
+            "User-level override for Pi's independent cache-TTL scheduler. Omitted uses the shared root cache_ttl; project values are ignored.",
+        ),
         subagent_extensions: z
             .array(z.string().trim().min(1))
             .optional()
@@ -1049,7 +1057,7 @@ export interface MagicContextConfig {
         enabled: boolean;
         overlay: boolean;
     };
-    /** Pi-only child-process extension controls. */
+    /** Pi-only scheduler and child-process controls. */
     pi?: PiConfig;
     /** Content-aware reclaim of tool output that a later call supersedes, added
      *  to the normal age-based auto-drop: superseded todowrite/ctx_reduce/meta
@@ -1213,12 +1221,9 @@ export const MagicContextConfigSchema = z
             })
             .default({ enabled: true, retina_handoff: false })
             .describe("Smart-note ownership transition controls."),
-        cache_ttl: z
-            .union([z.string(), z.object({ default: z.string() }).catchall(z.string())])
-            .default("5m")
-            .describe(
-                'How long Magic Context assumes the provider\'s cached prefix stays valid. This is MC\'s own deferral gate — it does not change the provider\'s actual cache lifetime. String (e.g. "5m", "1h", "30s") or per-model object ({ default: "5m", "provider/model": "1h", "provider/*": "never" }); keys resolve most-specific first (exact provider/model, bare model ID, shorter dash-prefixes, then the provider/* wildcard, then default). User and project settings, including an explicit "5m" or object default, apply on the next pass. Only built-in defaults are frozen per session, including across restarts: when unset, GPT-5.6 and later (including gpt-6*, through any provider prefix) use 30m, other models use 5m. /ctx-status shows the effective TTL and whether it comes from your config or a frozen built-in default. Editing the TTL does not itself rewrite prompt bytes; a lowered TTL rebuilds only after normal idle expiry. OpenAI documents at least 30 minutes since the latest write or reuse: https://developers.openai.com/api/docs/guides/prompt-caching (Cache lifetime and Summary of model differences). Set to "never" to mean MC never assumes expiry (for lanes kept warm externally by a cache-keep tool) — disables the idle-TTL heuristic so MC never initiates a rebuild based on elapsed time. Provider-side extended TTL is a separate request-level concern (cache_control: { ttl } in the request body).',
-            ),
+        cache_ttl: CacheTtlConfigSchema.default("5m").describe(
+            'How long Magic Context assumes the provider\'s cached prefix stays valid. This is MC\'s own deferral gate — it does not change the provider\'s actual cache lifetime. String (e.g. "5m", "1h", "30s") or per-model object ({ default: "5m", "provider/model": "1h", "provider/*": "never" }); keys resolve most-specific first (exact provider/model, bare model ID, shorter dash-prefixes, then the provider/* wildcard, then default). User and project settings, including an explicit "5m" or object default, apply on the next pass. Only built-in defaults are frozen per session, including across restarts: when unset, GPT-5.6 and later (including gpt-6*, through any provider prefix) use 30m, other models use 5m. /ctx-status shows the effective TTL and whether it comes from your config or a frozen built-in default. Editing the TTL does not itself rewrite prompt bytes; a lowered TTL rebuilds only after normal idle expiry. OpenAI documents at least 30 minutes since the latest write or reuse: https://developers.openai.com/api/docs/guides/prompt-caching (Cache lifetime and Summary of model differences). Set to "never" to mean MC never assumes expiry (for lanes kept warm externally by a cache-keep tool) — disables the idle-TTL heuristic so MC never initiates a rebuild based on elapsed time. Provider-side extended TTL is a separate request-level concern (cache_control: { ttl } in the request body).',
+        ),
         prompt_surface: PromptSurfaceConfigSchema.default({ default: "full" }).describe(
             "Prompt-surface presets: default is full; models use bare model IDs, provider/model, or provider/* routing keys. Guidance and tool-description overrides are user-level only. OpenCode 1.x, Pi, and OMP register tool descriptions once per process (they follow the default preset). OpenCode 2 rewrites the five ctx_* descriptions per request from the draft model.",
         ),
@@ -1476,7 +1481,7 @@ export const MagicContextConfigSchema = z
                 "Pi-only todowrite tool and overlay controls. Pi registers tools and widgets at extension boot, so changing this after /cd requires /reload or restart.",
             ),
         pi: PiConfigSchema.describe(
-            "Pi-only child-process extension controls. This setting is user-level only; project configuration cannot choose which extensions a user's subagent children load.",
+            "Pi-only scheduler and child-process controls. Project configuration cannot override pi.cache_ttl or choose which extensions a user's subagent children load.",
         ),
         smart_drops: z
             .unknown()

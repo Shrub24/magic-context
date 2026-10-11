@@ -82,6 +82,7 @@ import { isPrefixBoundThinkingModel } from "../../plugin/src/features/magic-cont
 import * as decisionLogs from "../../plugin/src/features/magic-context/transform-decision-log";
 import { createTestTempDirFromPath } from "../../plugin/src/shared/test-temp-dir";
 import { clearAutoSearchForPiSession } from "./auto-search-pi";
+import { executeCtxFlush } from "./commands/ctx-flush";
 import {
 	awaitInFlightHistorians,
 	clearContextHandlerSession,
@@ -92,6 +93,7 @@ import {
 	consumePendingMaterialization,
 	__test as contextHandlerInternals,
 	hasPendingMaterialization,
+	hasSystemPromptRefresh,
 	piVariantChangeBustsProviderCache,
 	recordPiLiveModel,
 	registerPiContextHandler as registerPiContextHandlerImpl,
@@ -2860,6 +2862,87 @@ describe("registerPiContextHandler", () => {
 			}
 		});
 	}
+
+	it("applies executeCtxFlush changes in the next real context pass", async () => {
+		const db = createTestDb();
+		const sessionId = "ses-context-flush-integration";
+		const fake = createFakePi();
+		try {
+			registerPiContextHandler(fake.pi as never, {
+				db,
+				injection: { injectionBudgetTokens: 10_000 },
+				protectedTags: 0,
+			});
+			const handler = fake.handlers.get("context") as (
+				event: { messages: never[] },
+				ctx: never,
+			) => Promise<{ messages: never[] }>;
+			const runContext = async () => {
+				const messages = [
+					userMessage("keep user", 1),
+					assistantMessage("drop assistant", 2),
+				];
+				return handler(
+					{ messages: messages as never[] },
+					fakeContext(
+						sessionId,
+						process.cwd(),
+						["entry-user", "entry-assistant"],
+						messages,
+					) as never,
+				);
+			};
+
+			const originalRequest = await runContext();
+			expect(
+				originalRequest.messages.some((message) =>
+					textOf(message as never).includes("drop assistant"),
+				),
+			).toBe(true);
+			appendCompartments(db, sessionId, [
+				{
+					sequence: 0,
+					startMessage: 1,
+					endMessage: 2,
+					startMessageId: "entry-user",
+					endMessageId: "entry-assistant",
+					title: "Flushed history publication",
+					content: "Flushed history reaches the provider request.",
+					p1: "Flushed history reaches the provider request.",
+				},
+			]);
+			queuePendingOp(db, sessionId, 2, "drop");
+
+			const flush = executeCtxFlush(db, sessionId);
+			expect(flush.pendingOps).toBe(1);
+			expect(getPendingOps(db, sessionId)).toEqual([]);
+			expect(
+				contextHandlerInternals.variantRefreshStateForTests(sessionId),
+			).toEqual({ history: true, systemPrompt: true, materialization: true });
+
+			// fakeContext reports 0% usage: this exercises flush, not pressure.
+			const nextRequest = await runContext();
+			expect(
+				nextRequest.messages.some((message) =>
+					textOf(message as never).includes(
+						"Flushed history reaches the provider request.",
+					),
+				),
+			).toBe(true);
+			expect(
+				nextRequest.messages.some((message) =>
+					textOf(message as never).includes("drop assistant"),
+				),
+			).toBe(false);
+			expect(
+				contextHandlerInternals.variantRefreshStateForTests(sessionId),
+			).toEqual({ history: false, systemPrompt: true, materialization: false });
+			expect(hasSystemPromptRefresh(sessionId)).toBe(true);
+		} finally {
+			clearContextHandlerSession(sessionId);
+			closeQuietly(db);
+		}
+	});
 
 	it("applies and drains pending drops for the session", async () => {
 		const db = createTestDb();

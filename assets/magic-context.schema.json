@@ -2568,9 +2568,31 @@
       }
     },
     "pi": {
-      "description": "Pi-only child-process extension controls. This setting is user-level only; project configuration cannot choose which extensions a user's subagent children load.",
+      "description": "Pi-only scheduler and child-process controls. Project configuration cannot override pi.cache_ttl or choose which extensions a user's subagent children load.",
       "type": "object",
       "properties": {
+        "cache_ttl": {
+          "description": "User-level override for Pi's independent cache-TTL scheduler. Omitted uses the shared root cache_ttl; project values are ignored.",
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "object",
+              "properties": {
+                "default": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "default"
+              ],
+              "additionalProperties": {
+                "type": "string"
+              }
+            }
+          ]
+        },
         "subagent_extensions": {
           "description": "User-only allowlist of Pi extensions for Magic Context subagent children. When set, children use --no-extensions and load only these entries (plus Magic Context's scoped child extension where applicable). Relative paths resolve from ~/.pi/agent, matching Pi's settings.json package location. Unset preserves normal Pi extension discovery.",
           "type": "array",
