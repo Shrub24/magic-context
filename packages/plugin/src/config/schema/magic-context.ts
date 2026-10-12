@@ -70,7 +70,7 @@ export const PiConfigSchema = z
             .array(z.string().trim().min(1))
             .optional()
             .describe(
-                "User-only allowlist of Pi extensions for Magic Context subagent children. When set, children use --no-extensions and load only these entries (plus Magic Context's scoped child extension where applicable). Relative paths resolve from ~/.pi/agent, matching Pi's settings.json package location. Unset preserves normal Pi extension discovery.",
+                "User-only allowlist of Pi extensions for Magic Context subagent children. When set, children use --no-extensions and load only these entries (plus Magic Context's scoped child extension where applicable). For Pi children, source entries (`npm:`, `git:`, `github:`, `http:`, `https:`, `ssh:`, `builtin:`) are passed unchanged; `~/` and `file://` are expanded. Other relative paths resolve from ~/.pi/agent, matching Pi's settings.json package location. Unset preserves normal Pi extension discovery.",
             ),
     })
     .optional();
