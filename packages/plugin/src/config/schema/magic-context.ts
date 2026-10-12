@@ -60,6 +60,12 @@ export const PiConfigSchema = z
         cache_ttl: CacheTtlConfigSchema.optional().describe(
             "User-level override for Pi's independent cache-TTL scheduler. Omitted uses the shared root cache_ttl; project values are ignored.",
         ),
+        subagent_prompt: z
+            .boolean()
+            .optional()
+            .describe(
+                "Use the bounded-subagent system-prompt addendum for this Pi/OMP session (default: false). Intended to be set from a launcher-selected config profile so a spawned child gets the subagent surface; project values are ignored. Changes only the Magic Context addendum — history, memory reads, tools and compaction are unaffected. OpenCode and the Rust module have no pi config block and keep their own subagent policy.",
+            ),
         subagent_extensions: z
             .array(z.string().trim().min(1))
             .optional()
@@ -478,15 +484,26 @@ const ProfileMemorySchema = z
     })
     .strict();
 
+/** The Pi prompt policy a profile may scope. Mirrors the `pi` block of the user
+ *  config, so a launcher can put a spawned child on the subagent prompt surface
+ *  through one profile. `.strict()` keeps a typo an error rather than a silently
+ *  ignored override. */
+const ProfilePiPolicySchema = z
+    .object({
+        subagent_prompt: z.boolean().optional(),
+    })
+    .strict();
+
 export const ConfigProfileSchema = z
     .object({
         historian: ProfileHistorianSchema.optional(),
         dreamer: ProfileDreamerSchema.optional(),
         memory: ProfileMemorySchema.optional(),
+        pi: ProfilePiPolicySchema.optional(),
     })
     .strict()
     .describe(
-        "User-owned overlay: historian/dreamer harness model blocks plus memory.read_only. No other key class is allowed.",
+        "User-owned overlay: historian/dreamer harness model blocks plus memory.read_only and Pi prompt policy. No other key class is allowed.",
     );
 export type ConfigProfile = z.infer<typeof ConfigProfileSchema>;
 
@@ -1211,7 +1228,7 @@ export const MagicContextConfigSchema = z
                 "Select a named user-owned model profile. A valid project name overrides this user default; an empty string, null, or other non-string project value is ignored with a warning so the user selection still applies. Unknown names warn and use the base configuration.",
             ),
         profiles: ConfigProfilesSchema.optional().describe(
-            "User-level named model profiles. A profile may contain only historian/dreamer model, fallback_models, OpenCode variant, and Pi/OMP thinking_level fields, plus memory.read_only; task execution policy (including timeout_minutes) is excluded. Project configs may select a name but cannot define profiles.",
+            "User-level named model profiles. A profile may contain only historian/dreamer model, fallback_models, OpenCode variant, and Pi/OMP thinking_level fields, plus memory.read_only and pi.subagent_prompt; task execution policy (including timeout_minutes) is excluded. Project configs may select a name but cannot define profiles.",
         ),
         historian: HistorianConfigSchema.describe(
             "Historian metadata plus independent strict OpenCode, Pi, and OMP execution blocks. Retained metadata stays at historian; model, fallback_models, variant, and thinking_level belong only in historian.opencode, historian.pi, or historian.omp.",
@@ -1500,7 +1517,7 @@ export const MagicContextConfigSchema = z
                 "Pi-only todowrite tool and overlay controls. Pi registers tools and widgets at extension boot, so changing this after /cd requires /reload or restart.",
             ),
         pi: PiConfigSchema.describe(
-            "Pi-only scheduler and child-process controls. Project configuration cannot override pi.cache_ttl or choose which extensions a user's subagent children load.",
+            "Pi-only scheduler and child-process controls. Project configuration cannot override pi.cache_ttl or pi.subagent_prompt, or choose which extensions a user's subagent children load.",
         ),
         smart_drops: z
             .unknown()

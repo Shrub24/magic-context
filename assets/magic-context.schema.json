@@ -55,7 +55,7 @@
       "minLength": 1
     },
     "profiles": {
-      "description": "User-level named model profiles. A profile may contain only historian/dreamer model, fallback_models, OpenCode variant, and Pi/OMP thinking_level fields, plus memory.read_only; task execution policy (including timeout_minutes) is excluded. Project configs may select a name but cannot define profiles.",
+      "description": "User-level named model profiles. A profile may contain only historian/dreamer model, fallback_models, OpenCode variant, and Pi/OMP thinking_level fields, plus memory.read_only and pi.subagent_prompt; task execution policy (including timeout_minutes) is excluded. Project configs may select a name but cannot define profiles.",
       "type": "object",
       "propertyNames": {
         "type": "string",
@@ -588,10 +588,19 @@
               }
             },
             "additionalProperties": false
+          },
+          "pi": {
+            "type": "object",
+            "properties": {
+              "subagent_prompt": {
+                "type": "boolean"
+              }
+            },
+            "additionalProperties": false
           }
         },
         "additionalProperties": false,
-        "description": "User-owned overlay: historian/dreamer harness model blocks plus memory.read_only. No other key class is allowed."
+        "description": "User-owned overlay: historian/dreamer harness model blocks plus memory.read_only and Pi prompt policy. No other key class is allowed."
       }
     },
     "historian": {
@@ -2569,7 +2578,7 @@
       }
     },
     "pi": {
-      "description": "Pi-only scheduler and child-process controls. Project configuration cannot override pi.cache_ttl or choose which extensions a user's subagent children load.",
+      "description": "Pi-only scheduler and child-process controls. Project configuration cannot override pi.cache_ttl or pi.subagent_prompt, or choose which extensions a user's subagent children load.",
       "type": "object",
       "properties": {
         "cache_ttl": {
@@ -2593,6 +2602,10 @@
               }
             }
           ]
+        },
+        "subagent_prompt": {
+          "description": "Use the bounded-subagent system-prompt addendum for this Pi/OMP session (default: false). Intended to be set from a launcher-selected config profile so a spawned child gets the subagent surface; project values are ignored. Changes only the Magic Context addendum — history, memory reads, tools and compaction are unaffected. OpenCode and the Rust module have no pi config block and keep their own subagent policy.",
+          "type": "boolean"
         },
         "subagent_extensions": {
           "description": "User-only allowlist of Pi extensions for Magic Context subagent children. When set, children use --no-extensions and load only these entries (plus Magic Context's scoped child extension where applicable). Relative paths resolve from ~/.pi/agent, matching Pi's settings.json package location. Unset preserves normal Pi extension discovery.",
