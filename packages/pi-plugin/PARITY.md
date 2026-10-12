@@ -851,6 +851,18 @@ fork keeps one mechanism per harness rather than a second, differently-shaped on
 An OpenCode session started with a read-only profile still writes memories and
 notes.
 
+**Fork seam — `pi.subagent_prompt` (fork-only, Pi/OMP only).** The same profile can
+put a spawned child on the bounded-subagent prompt surface: the Pi addendum then
+carries `SUBAGENT_REDUCE_INTRO` plus the tag guidance instead of the
+durable-partner frame, the memory/search/note guidance and the reduction taxonomy.
+The flag is read at the single `buildMagicContextBlock` call site and applied only
+while the tag system is active (compaction on), since the subagent intro describes
+tags and `ctx_reduce`. Nothing else moves: history injection, the
+`<project-memory>` block, tools and compaction are unaffected, so a read-only
+subagent profile still gets full compaction and search with the child prompt.
+OpenCode and the Rust module have no `pi` config block and keep their own subagent
+policy.
+
 ---
 
 ## 25. Pi clone/fork and OpenCode 2 fork inherit session state; OpenCode 1 `/fork` cannot

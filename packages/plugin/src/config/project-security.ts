@@ -357,8 +357,10 @@ function makeProjectThresholdWarning(field: string, reason: string): string {
  *  - `mural.model` at the top-level block, the legacy experimental spelling,
  *    and any nested `mural.model` under hidden agents — a cloned repo cannot
  *    choose where project memory is sent.
- *  - `pi.subagent_extensions` and `pi.cache_ttl` — a cloned repo must not choose
- *    which extensions the user's Pi child processes load or set Pi's idle-TTL policy.
+ *  - `pi.subagent_extensions`, `pi.cache_ttl` and `pi.subagent_prompt` — a cloned
+ *    repo must not choose which extensions the user's Pi child processes load,
+ *    set Pi's idle-TTL policy, or decide whether a session gets the child
+ *    prompt surface.
  *  - `prompt_surface.guidance_override_path` / `tool_descriptions` — a repository
  *    may select a reviewed preset, but must not inject arbitrary guidance or tool
  *    description text into the user's provider-visible prompt.
@@ -496,6 +498,12 @@ export function stripUnsafeProjectConfigFields(projectRaw: Record<string, unknow
         delete pi.cache_ttl;
         warnings.push(
             "Ignoring pi.cache_ttl from project config (security: only user-level config may set Pi's idle-TTL policy).",
+        );
+    }
+    if (isPlainObject(pi) && "subagent_prompt" in pi) {
+        delete pi.subagent_prompt;
+        warnings.push(
+            "Ignoring pi.subagent_prompt from project config (security: only user-level config may put a session on the subagent prompt surface).",
         );
     }
 

@@ -121,6 +121,58 @@ describe("buildMagicContextBlock v2 system-prompt parity", () => {
 		}
 	});
 
+	it("emits the bounded-subagent surface when the profile asks for it", () => {
+		const db = createTestDb();
+		try {
+			const block = buildMagicContextBlock({
+				db,
+				cwd: tempDir("pi-subagent-prompt-"),
+				sessionId: "ses-subagent-prompt",
+				memoryEnabled: false,
+				includeGuidance: true,
+				ctxReduceCallable: true,
+				subagentMode: true,
+			});
+
+			expect(block).not.toBeNull();
+			// Tag mechanics stay: a bounded child still stamps what it is done with.
+			expect(block).toContain("ctx_reduce");
+			expect(block).toContain("§12§");
+			// Primary-session framing and guidance for tools a child does not have go.
+			expect(block).not.toContain("long-term partner");
+			expect(block).not.toContain("### Your desk");
+			expect(block).not.toContain("ctx_memory");
+			expect(block).not.toContain("ctx_note");
+			expect(block).not.toContain("ctx_search");
+		} finally {
+			closeQuietly(db);
+		}
+	});
+
+	it("keeps the primary surface when the policy is absent or false", () => {
+		const db = createTestDb();
+		try {
+			const common = {
+				db,
+				cwd: tempDir("pi-subagent-prompt-off-"),
+				sessionId: "ses-subagent-prompt-off",
+				memoryEnabled: true,
+				includeGuidance: true,
+			};
+
+			const absent = buildMagicContextBlock(common);
+			const explicitFalse = buildMagicContextBlock({
+				...common,
+				subagentMode: false,
+			});
+
+			expect(absent).toBe(explicitFalse);
+			expect(absent).toContain("long-term partner");
+		} finally {
+			closeQuietly(db);
+		}
+	});
+
 	it("removes ctx_memory guidance when memory is disabled", () => {
 		const db = createTestDb();
 		try {

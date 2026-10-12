@@ -398,3 +398,15 @@ describe("source contract: peek-then-drain in before_agent_start (system prompt)
 		);
 	});
 });
+
+describe("source contract: subagent prompt policy wiring", () => {
+	const code = stripComments(INDEX_SRC);
+
+	test("the block builder receives the policy, gated on active tagging", () => {
+		// The config key is only meaningful while Magic Context tags and reduces:
+		// with compaction off the subagent intro would describe absent mechanics.
+		expect(code).toMatch(
+			/effectiveConfig\.pi\?\.subagent_prompt === true\s*&&\s*!compactionOff/,
+		);
+	});
+});
