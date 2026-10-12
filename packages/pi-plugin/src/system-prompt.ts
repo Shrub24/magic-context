@@ -43,6 +43,12 @@ export interface BuildMagicContextBlockOptions {
 	includeGuidance?: boolean;
 	protectedTags?: number;
 	ctxReduceCallable?: boolean;
+	/**
+	 * Emit the bounded-subagent surface instead of the primary-session one. Set by
+	 * a launcher-selected profile for a spawned child; requires the tag system to
+	 * be active, since the subagent surface describes tags and `ctx_reduce`.
+	 */
+	subagentMode?: boolean;
 	dreamerEnabled?: boolean;
 	smartNotesEnabled?: boolean;
 	temporalAwarenessEnabled?: boolean;
@@ -77,7 +83,7 @@ export function buildMagicContextBlock(
 		opts.dreamerEnabled ?? false,
 		opts.temporalAwarenessEnabled ?? false,
 		opts.cavemanTextCompressionEnabled ?? false,
-		false,
+		opts.subagentMode ?? false,
 		opts.language,
 		// Drop ctx_memory guidance when the tool is unavailable — memory is off
 		// (gated via registerMagicContextTools memoryToolEnabled) or the session is

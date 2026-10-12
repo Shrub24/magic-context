@@ -87,7 +87,7 @@ export function resolveConfigProfile(args: {
             profiles = parsed.data as Record<string, Record<string, unknown>>;
         } else {
             warnings.push(
-                "Ignoring profiles from user config: invalid profile configuration; profiles may contain only historian/dreamer harness model blocks and memory.read_only.",
+                "Ignoring profiles from user config: invalid profile configuration; profiles may contain only historian/dreamer harness model blocks, memory.read_only and pi.subagent_prompt.",
             );
         }
     }

@@ -712,6 +712,53 @@ describe("loadPiConfig", () => {
 		expect(result.config.memory.read_only).toBe(true);
 	});
 
+	it("carries the subagent prompt policy on the launcher profile", () => {
+		const cwd = makeTempRoot("mc-pi-subagent-prompt-cwd-");
+		const home = makeTempRoot("mc-pi-subagent-prompt-home-");
+		withHome(home);
+		writeUserConfig(
+			home,
+			JSON.stringify({
+				pi: { cache_ttl: "never", subagent_extensions: ["npm/x.ts"] },
+				profiles: {
+					subagent: {
+						memory: { read_only: true },
+						pi: { subagent_prompt: true },
+					},
+				},
+			}),
+		);
+		process.env[LAUNCHER_PROFILE_ENV] = "subagent";
+
+		const result = loadPiConfig({ cwd });
+
+		// The profile's `pi` block merges into the user's, so the keys beside it survive.
+		expect(result.config.pi).toMatchObject({
+			subagent_prompt: true,
+			cache_ttl: "never",
+			subagent_extensions: ["npm/x.ts"],
+		});
+		expect(result.config.memory.read_only).toBe(true);
+	});
+
+	it("keeps the launcher-selected subagent prompt policy over project config", () => {
+		const cwd = makeTempRoot("mc-pi-subagent-prompt-project-cwd-");
+		const home = makeTempRoot("mc-pi-subagent-prompt-project-home-");
+		withHome(home);
+		writeUserConfig(
+			home,
+			JSON.stringify({
+				profiles: { subagent: { pi: { subagent_prompt: true } } },
+			}),
+		);
+		writeProjectConfig(cwd, JSON.stringify({ pi: { subagent_prompt: false } }));
+		process.env[LAUNCHER_PROFILE_ENV] = "subagent";
+
+		const result = loadPiConfig({ cwd });
+
+		expect(result.config.pi?.subagent_prompt).toBe(true);
+	});
+
 	it("warns and loads normally for an unknown launcher profile", () => {
 		const cwd = makeTempRoot("mc-pi-launcher-unknown-cwd-");
 		const home = makeTempRoot("mc-pi-launcher-unknown-home-");
@@ -1103,5 +1150,11 @@ describe("loadPiConfig — project config cannot reset user settings", () => {
 			cacheTtlConfig: "30m",
 			cacheTtlConfigured: true,
 		});
+	});
+
+	it("ignores a project pi.subagent_prompt and leaves the primary surface on", () => {
+		const result = load({}, { pi: { subagent_prompt: true } });
+		expect(result.config.pi?.subagent_prompt).toBeUndefined();
+		expect(result.warnings.join("\n")).toContain("Ignoring pi.subagent_prompt");
 	});
 });

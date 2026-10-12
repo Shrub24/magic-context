@@ -2533,6 +2533,11 @@ async function startPiMagicContextRuntime(
 				includeGuidance: true,
 				protectedTags: effectiveConfig.protected_tags,
 				ctxReduceCallable: !compactionOff,
+				// A launcher-selected profile can put a spawned child on the subagent
+				// surface, but only while the tag system is active: with compaction off
+				// nothing tags or reduces, so that intro would describe absent mechanics.
+				subagentMode:
+					effectiveConfig.pi?.subagent_prompt === true && !compactionOff,
 				dreamerEnabled: effectiveProjectDeps.dreamerEnabled,
 				smartNotesEnabled: config.smart_notes.enabled,
 				temporalAwarenessEnabled: effectiveConfig.temporal_awareness ?? false,
