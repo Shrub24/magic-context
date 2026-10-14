@@ -3597,6 +3597,7 @@ describe("registerPiContextHandler", () => {
 			persistPiMessageEndModelMeta({
 				db,
 				sessionId: "ses-context",
+				selectedModelKey: canonicalModelKey,
 				message: assistantMessage("done", 1, {
 					provider: "openai-codex",
 					model: "gpt-5.6-sol",
@@ -3636,6 +3637,7 @@ describe("registerPiContextHandler", () => {
 			persistPiMessageEndModelMeta({
 				db,
 				sessionId,
+				selectedModelKey: "anthropic/fable-5.1",
 				message: assistantMessage("new model", 2, {
 					provider: "anthropic",
 					model: "fable-5.1",
@@ -3645,6 +3647,7 @@ describe("registerPiContextHandler", () => {
 			persistPiMessageEndModelMeta({
 				db,
 				sessionId,
+				selectedModelKey: "anthropic/fable-5",
 				message: assistantMessage("late old model", 1, {
 					provider: "anthropic",
 					model: "fable-5",
@@ -5136,9 +5139,10 @@ describe("registerPiContextHandler", () => {
 		}
 	});
 
-	it("serves injection drops and caveman compression identically on the next defer pass", async () => {
+	it("serves injection drops and caveman compression identically after a virtual-route physical response", async () => {
 		const db = createTestDb();
 		const sessionId = "ses-drop-caveman-same-pass";
+		const { persistPiMessageEndModelMeta } = await import("./index");
 		const gates: Array<{
 			shouldRunHeuristics: boolean;
 			shouldRunReasoningCleanup: boolean;
@@ -5186,6 +5190,7 @@ describe("registerPiContextHandler", () => {
 						messages.map((_, i) => `entry-${i}`),
 						messages as never,
 					),
+					model: { provider: "route", id: "coder" },
 					getContextUsage: () => ({
 						tokens: percent * 1_000,
 						percent,
@@ -5211,7 +5216,34 @@ describe("registerPiContextHandler", () => {
 				lastContextPercentage: 1,
 				lastInputTokens: 1_000,
 			});
+			const watermark = getOrCreateSessionMeta(
+				db,
+				sessionId,
+			).clearedReasoningThroughTag;
+			incrementHistorianFailure(
+				db,
+				sessionId,
+				"preserve under unchanged route",
+			);
+			persistPiMessageEndModelMeta({
+				db,
+				sessionId,
+				selectedModelKey: "route/coder",
+				message: assistantMessage("physical response", 6, {
+					provider: "anthropic",
+					model: "claude-haiku-5-5",
+				}),
+				cacheTtlConfig: { "route/coder": "59m", "anthropic/*": "never" },
+			});
+			expect(getOrCreateSessionMeta(db, sessionId).cacheTtl).toBe("59m");
+			expect(getOrCreateSessionMeta(db, sessionId).lastObservedModelKey).toBe(
+				"anthropic/claude-haiku-5-5",
+			);
 			const deferred = await runPass(1);
+			expect(
+				getOrCreateSessionMeta(db, sessionId).clearedReasoningThroughTag,
+			).toBe(watermark);
+			expect(getHistorianFailureState(db, sessionId).failureCount).toBe(1);
 			expect(gates.map((gate) => gate.shouldRunHeuristics)).toEqual([
 				true,
 				false,

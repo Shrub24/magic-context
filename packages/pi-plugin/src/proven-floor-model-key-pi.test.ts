@@ -137,6 +137,12 @@ async function runPass(args: {
 	const prompt = userMessage("next", 3);
 	const messages = [first, A_REPLY, prompt] as never[];
 	const branch = [
+		{
+			type: "model_change",
+			id: "selection-a",
+			provider: MODEL_A.provider,
+			modelId: MODEL_A.id,
+		},
 		{ type: "message", id: "entry-1", message: first },
 		{ type: "message", id: "entry-2", message: A_REPLY },
 		...(args.extraBranchEntries ?? []),

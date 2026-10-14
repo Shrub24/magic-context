@@ -337,8 +337,8 @@ export function readPiSessionMessagePage(
  * is undefined and a model change that happened while the process was down would
  * NOT be detected — leaking the previous model's detected-context-limit /
  * reasoning-watermark / historian-failure state into the new model. Seeding from
- * the JSONL lets the first-pass model-change comparison fire correctly. Mirrors
- * OpenCode seeding liveModelBySession from the latest assistant message's model.
+ * the JSONL lets the first-pass model-change comparison fire correctly without
+ * substituting a physical assistant model for the selected identity.
  *
  * Returns undefined when the branch has no model_change entry (older sessions /
  * edge cases) — the caller then leaves previousModelKey undefined, preserving
@@ -380,15 +380,15 @@ export function findLastModelKeyFromBranch(
  * switched models after the last reply, possibly before the restart: that
  * entry already names the model in use now, so seeding from it would make the
  * first pass compare the new model with itself and miss the switch. The
- * newest assistant message's model (failed or aborted replies included) is
- * then the model the pin held when the last reply ended, which is what a
- * process that never restarted would compare against.
+ * selection in effect at the newest assistant reply is the prior identity.
+ * Assistant metadata may name a physical model behind a virtual selection.
  */
 export function findRestartModelSeedFromBranch(
 	entries: readonly unknown[] | null | undefined,
 ): string | undefined {
 	if (!Array.isArray(entries)) return undefined;
-	let switchedAfterLastReply = false;
+	let sawReply = false;
+	let latestSelection: string | undefined;
 	for (let i = entries.length - 1; i >= 0; i--) {
 		const e = entries[i] as {
 			type?: unknown;
@@ -397,28 +397,26 @@ export function findRestartModelSeedFromBranch(
 			modelId?: unknown;
 		} | null;
 		if (e?.type === "model_change") {
-			if (typeof e.provider === "string" && typeof e.modelId === "string")
-				switchedAfterLastReply = true;
+			if (
+				typeof e.provider !== "string" ||
+				!e.provider ||
+				typeof e.modelId !== "string" ||
+				!e.modelId
+			)
+				continue;
+			const selection = `${e.provider}/${e.modelId}`;
+			if (sawReply) return selection;
+			latestSelection ??= selection;
 			continue;
 		}
-		if (e?.type !== "message") continue;
-		const m = e.message as
-			| { role?: unknown; provider?: unknown; model?: unknown }
-			| undefined;
-		if (m?.role !== "assistant") continue;
 		if (
-			typeof m.provider !== "string" ||
-			m.provider.length === 0 ||
-			typeof m.model !== "string" ||
-			m.model.length === 0
+			e?.type === "message" &&
+			(e.message as { role?: unknown } | undefined)?.role === "assistant"
 		) {
-			continue;
+			sawReply = true;
 		}
-		return switchedAfterLastReply
-			? `${m.provider}/${m.model}`
-			: findLastModelKeyFromBranch(entries);
 	}
-	return findLastModelKeyFromBranch(entries);
+	return sawReply ? undefined : latestSelection;
 }
 
 function rawEntryVersion(entry: MessageEntry): string | number {

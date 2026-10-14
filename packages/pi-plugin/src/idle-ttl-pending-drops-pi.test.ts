@@ -105,6 +105,7 @@ function setup(
 			db,
 			sessionId,
 			message,
+			selectedModelKey: `${model.provider}/${model.id}`,
 			cacheTtlConfig,
 		});
 		await persistPiPressureFromMessageEnd({

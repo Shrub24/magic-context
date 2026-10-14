@@ -20,11 +20,11 @@ describe("findRestartModelSeedFromBranch", () => {
 		modelId,
 	});
 
-	it("uses the last reply's model when a model_change follows it", () => {
+	it("uses the selection at the last reply when a model_change follows it", () => {
 		expect(
 			findRestartModelSeedFromBranch([
 				change("google-antigravity", "gemini"),
-				reply("google-antigravity", "gemini"),
+				reply("anthropic", "claude-haiku-5-5"),
 				change("openai-codex", "gpt-6-sol"),
 			]),
 		).toBe("google-antigravity/gemini");
