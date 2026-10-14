@@ -166,6 +166,7 @@ import {
 } from "./config";
 import {
 	abortInFlightHistorians,
+	acceptPiAssistantModelTimestamp,
 	awaitInFlightHistorians,
 	clearContextHandlerSession,
 	clearPiM0Cache,
@@ -174,7 +175,6 @@ import {
 	type PiAutoSearchHandlerOptions,
 	type PiContextHandlerOptions,
 	type PiHistorianOptions,
-	recordPiLiveModel,
 	registerPiContextHandler,
 	signalPiDeferredHistoryRefresh,
 	signalPiDeferredMaterialization,
@@ -431,6 +431,7 @@ export function persistPiMessageEndModelMeta(args: {
 	db: ContextDatabase;
 	sessionId: string;
 	message: unknown;
+	selectedModelKey: string | undefined;
 	cacheTtlConfig: MagicContextConfig["cache_ttl"];
 	cacheTtlConfigured?: boolean;
 }): void {
@@ -451,15 +452,18 @@ export function persistPiMessageEndModelMeta(args: {
 		return;
 	}
 	const modelKey = canonicalPiModelKey(msg.provider, msg.model);
-	if (!recordPiLiveModel(args.sessionId, modelKey, msg.timestamp)) return;
-	const cacheTtl = resolveSessionCacheTtl(
-		args.db,
-		args.sessionId,
-		args.cacheTtlConfig,
-		modelKey,
-		args.cacheTtlConfigured,
-	).value;
+	if (!acceptPiAssistantModelTimestamp(args.sessionId, msg.timestamp)) return;
 	const currentMeta = getOrCreateSessionMeta(args.db, args.sessionId);
+	const cacheTtl =
+		args.selectedModelKey === undefined
+			? currentMeta.cacheTtl
+			: resolveSessionCacheTtl(
+					args.db,
+					args.sessionId,
+					args.cacheTtlConfig,
+					args.selectedModelKey,
+					args.cacheTtlConfigured,
+				).value;
 	updateSessionMeta(args.db, args.sessionId, {
 		...(currentMeta.cacheTtl === cacheTtl ? {} : { cacheTtl }),
 		lastObservedModelKey: modelKey,
@@ -3008,6 +3012,9 @@ async function startPiMagicContextRuntime(
 				db,
 				sessionId,
 				message: event.message,
+				selectedModelKey: ctx.model
+					? canonicalPiModelKey(ctx.model.provider, ctx.model.id)
+					: undefined,
 				...(() => {
 					const project = resolveCurrentProjectDeps(ctx);
 					const fresh = liveReaderFor(project.projectDir, project.config).poll()

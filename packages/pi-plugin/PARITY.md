@@ -1095,8 +1095,8 @@ Both harness twins now pre-execute a due fold off-wire and feed the shared `fold
 | OpenCode `readCurrentM0SnapshotMarkersUncached` | Canonicalizes the marker written with m[0]. |
 | OpenCode `mustMaterialize` | Canonicalizes both the live hard signal and cached m[0] key. |
 | OpenCode `cachedRowMatchesState` | Canonicalizes both cached-row and in-process keys. |
-| `cache_ttl`, execute-threshold, prompt-surface model maps | Resolve through `modelRefLookupOrder`, whose first candidate is canonical and whose fallbacks include native aliases. Pi canonicalizes the message-end key before persisting the resolved scalar `cacheTtl`; per-pass TTL checks parse that scalar and perform no model-key comparison. |
-| `last_observed_model_key` | Write paths canonicalize it and OpenCode readers canonicalize both sides. Pi's pressure writer does not populate this OpenCode usage-attribution field, so an empty value on the incident session is expected; Pi HARD-fold identity comes from `liveModelBySession`, not this column. |
+| `cache_ttl`, execute-threshold, prompt-surface model maps | Resolve through `modelRefLookupOrder`, whose first candidate is canonical and whose fallbacks include native aliases. Pi resolves TTL against the selected model/route at message end and during context preparation; physical assistant metadata is recorded separately. |
+| `last_observed_model_key` | Write paths canonicalize it and OpenCode readers canonicalize both sides. Pi records the physical assistant model here for diagnostics. Pi model-switch and HARD-fold decisions use selected identity in `liveModelBySession`, not this column. |
 
 Workspace fingerprints preserve the distinction between SQL `NULL` (not workspaced) and a non-empty hash. The compare normalizes only nullish values to `null`; it does not coerce `NULL` to `""`. A legacy zero-length fingerprint would therefore trigger one self-healing fold whose write stores the current `null`, not a per-pass loop.
 

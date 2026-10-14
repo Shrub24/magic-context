@@ -914,6 +914,7 @@ class PiLkgAdmissionReplay extends Error {
 		super("Saved request served before writer wait");
 	}
 }
+// Selected identities only; physical response models must not replace them.
 const liveModelBySession = new Map<string, string>();
 const latestAssistantModelTimestampBySession = new Map<string, number>();
 const taggedStableMessageIdsBySession = new Map<string, Set<string>>();
@@ -1445,9 +1446,12 @@ export function signalPiSystemPromptRefreshForProject(
 	}
 }
 
-export function recordPiLiveModel(
+export function recordPiLiveModel(sessionId: string, modelKey: string): void {
+	liveModelBySession.set(sessionId, modelKey);
+}
+
+export function acceptPiAssistantModelTimestamp(
 	sessionId: string,
-	modelKey: string,
 	assistantTimestamp?: number,
 ): boolean {
 	if (
@@ -1457,12 +1461,11 @@ export function recordPiLiveModel(
 		const latestTimestamp =
 			latestAssistantModelTimestampBySession.get(sessionId);
 		// Pi may replay terminal events after a newer assistant has already finished.
-		// Only the newest timestamp may move the model pin used by later context passes.
+		// Only the newest timestamp may update observed response metadata.
 		if (latestTimestamp !== undefined && assistantTimestamp < latestTimestamp)
 			return false;
 		latestAssistantModelTimestampBySession.set(sessionId, assistantTimestamp);
 	}
-	liveModelBySession.set(sessionId, modelKey);
 	return true;
 }
 
@@ -4863,8 +4866,8 @@ export function registerPiContextHandler(
 			// branch is the session's last-used model; seeding it lets the
 			// comparison below fire. No-op when the branch has no model_change
 			// (older sessions) — previousModelKey stays undefined (today's behavior).
-			// A model_change newer than the last reply is seeded from that reply's
-			// model instead (see findRestartModelSeedFromBranch), so a switch made
+			// A model_change newer than the last reply is seeded from the selection
+			// at that reply (see findRestartModelSeedFromBranch), so a switch made
 			// before the first prompt after the restart is still detected.
 			if (
 				isFirstContextPassForSession &&
@@ -4893,7 +4896,7 @@ export function registerPiContextHandler(
 				piModelRefToCanonical(previousModelKey) !==
 					piModelRefToCanonical(currentModelKey);
 			if (currentModelKey !== undefined) {
-				liveModelBySession.set(sessionId, currentModelKey);
+				recordPiLiveModel(sessionId, currentModelKey);
 			}
 			logTransformTiming(sessionId, "modelChangeDetection", tModelDetect);
 			const tPressureResolution = performance.now();
