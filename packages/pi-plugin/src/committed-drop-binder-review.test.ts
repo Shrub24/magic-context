@@ -54,7 +54,7 @@ for (const mode of ["full", "truncated", "skeleton_real"]) {
 				]);
 			else {
 				expect(wire).toContain("[dropped §817§]");
-				expect(wire.includes("real.ts")).toBe(mode === "skeleton_real");
+				expect(wire).toContain("real.ts");
 			}
 			replay();
 			expect(JSON.stringify(messages)).toBe(wire);

@@ -2429,7 +2429,7 @@ describe("registerPiContextHandler", () => {
 
 			expect(textOf(output[0])).toBe(`[dropped §${droppedText.tagNumber}§]`);
 			expect(output).toHaveLength(6);
-			expect(toolArguments(1)).toEqual({ dropped: truncatedSentinel });
+			expect(toolArguments(1)).toEqual({ filePath: "/tmp/truncated.ts" });
 			expect(textOf(output[2])).toBe(truncatedSentinel);
 			expect(toolArguments(3).filePath).toBe("/tmp/edit.ts");
 			expect(String(toolArguments(3).oldString)).toEndWith("...[truncated]");
@@ -5799,7 +5799,7 @@ describe("registerPiContextHandler", () => {
 			}
 		});
 
-		it("replays legacy marker skeletons on defer passes and converts them only on an executed HARD fold", async () => {
+		it("preserves legacy arguments on defer passes and converts modes only on an executed HARD fold", async () => {
 			const db = createTestDb();
 			const sessionId = "ses-pi-legacy-skeleton";
 			const largeContent = "L".repeat(2000);
@@ -5878,11 +5878,13 @@ describe("registerPiContextHandler", () => {
 					lastInputTokens: 4_000,
 				});
 
-				// Defer passes replay the legacy marker byte-identically.
+				// Deferred replay retains valid arguments without changing the stored mode.
 				const deferA = await pass();
 				const deferB = await pass();
-				expect(deferA).toContain(`{"dropped":"[dropped §${small}§]"}`);
-				expect(deferA).toContain(`{"dropped":"[dropped §${large}§]"}`);
+				expect(deferA).toContain('"arguments":{"command":"ls -la"}');
+				expect(deferA).toContain(`[dropped §${small}§]`);
+				expect(deferA).toContain('"filePath":"/tmp/a.txt","content":"LLLL');
+				expect(deferA).toContain(`[dropped §${large}§]`);
 				expect(deferB).toBe(deferA);
 				expect(modeOf(small)).toBe("truncated");
 

@@ -12,7 +12,7 @@ import { observePiPublicationForTest } from "./publication-observer-fixture.test
 
 const dir = new URL("./__fixtures__/", import.meta.url);
 for (const native of [false, true])
-	test(`Q1 200 legacy full ${native ? "native" : "plain"} first defer equals base bytes`, async () => {
+	test(`Q1 200 legacy full ${native ? "native" : "plain"} first defer preserves arguments before authorized removal`, async () => {
 		const f = fixture(native);
 		try {
 			await f.seed();
@@ -28,7 +28,19 @@ for (const native of [false, true])
 					? "1476e1cb61727f7534bc5d408de1b1bb872e7bb210102b06f585eddb26846e26"
 					: "d29fb362f9ad71b70f1d253ef648d516bd1041b688f77649a9f9f61473396ab9",
 			);
-			expect(bytes).toBe(baseBytes);
+			// Preserve every baseline field except the invalid legacy argument marker.
+			const expected = JSON.parse(baseBytes);
+			for (const message of expected) {
+				if (message.role !== "assistant") continue;
+				for (const part of message.content) {
+					if (part.type === "toolCall") {
+						const index = /^call-(\d+)\|/.exec(part.id)?.[1];
+						expect(index).toBeDefined();
+						part.arguments = { path: `original-${index}` };
+					}
+				}
+			}
+			expect(bytes).toBe(JSON.stringify(expected));
 			expect(calls(first)).toBe(200);
 			expect(getNativeToolInputs(f.db, f.session).size).toBe(0);
 			const priced = await f.pass(90);

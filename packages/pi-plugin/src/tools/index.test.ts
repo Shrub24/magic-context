@@ -27,6 +27,25 @@ import {
 	syncMemoryWriteToolsEnabled,
 } from "./index";
 
+interface RefusableTool {
+	name: string;
+	execute: (
+		toolCallId: string,
+		params: Record<string, unknown>,
+		signal: AbortSignal,
+		onUpdate: undefined,
+		ctx: unknown,
+	) => Promise<{ isError?: boolean; content: Array<{ text?: string }> }>;
+}
+
+function captureTools() {
+	const registered = new Map<string, RefusableTool>();
+	const pi = {
+		registerTool: (tool: RefusableTool) => registered.set(tool.name, tool),
+	} as never;
+	return { registered, pi };
+}
+
 describe("registerMagicContextTools", () => {
 	it("withholds the write tools each policy forbids and restores them after a config reload", () => {
 		const baseline = [
@@ -68,16 +87,6 @@ describe("registerMagicContextTools", () => {
 	});
 
 	it("refuses a direct ctx_memory/ctx_note call in a read-only session and writes nothing", async () => {
-		interface RefusableTool {
-			name: string;
-			execute: (
-				toolCallId: string,
-				params: Record<string, unknown>,
-				signal: AbortSignal,
-				onUpdate: undefined,
-				ctx: unknown,
-			) => Promise<{ isError?: boolean; content: Array<{ text?: string }> }>;
-		}
 		const db = createTestDb();
 		try {
 			const { registered, pi } = captureTools();
