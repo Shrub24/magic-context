@@ -1497,6 +1497,42 @@ export function recordPiLiveModel(sessionId: string, modelKey: string): void {
 	liveModelBySession.set(sessionId, modelKey);
 }
 
+/**
+ * Model whose signed thinking binds the prefix. A virtual route resolves to its
+ * physical model before the `context` hook runs, but Pi does not expose it; the
+ * latest successful response's model stands in (one step stale across a switch).
+ * HACK: replace with the resolved request model once Pi exposes it to `context`.
+ */
+export function resolvePiSignedBindingModel(
+	selected: { api?: string; provider?: string; id?: string } | undefined,
+	messages: readonly unknown[],
+): { provider?: string; id?: string } {
+	if (selected?.api !== "pi-virtual") {
+		return { provider: selected?.provider, id: selected?.id };
+	}
+	for (let i = messages.length - 1; i >= 0; i--) {
+		const message = messages[i] as {
+			role?: string;
+			provider?: unknown;
+			model?: unknown;
+			stopReason?: string;
+		};
+		if (message?.role !== "assistant") continue;
+		if (message.stopReason === "error" || message.stopReason === "aborted")
+			continue;
+		if (
+			typeof message.provider !== "string" ||
+			typeof message.model !== "string"
+		)
+			continue;
+		// A response left on the route itself was never dispatched to a physical model.
+		if (message.provider === selected.provider && message.model === selected.id)
+			continue;
+		return { provider: message.provider, id: message.model };
+	}
+	return { provider: selected.provider, id: selected.id };
+}
+
 export function acceptPiAssistantModelTimestamp(
 	sessionId: string,
 	assistantTimestamp?: number,
@@ -4780,6 +4816,10 @@ export function registerPiContextHandler(
 			// the pass, so every stage sees the same thinking on every pass. A
 			// session whose strips predate that order keeps stripping here, before
 			// any stage, until a pass that may change bytes switches it.
+			const bindingModel = resolvePiSignedBindingModel(
+				ctx.model,
+				event.messages,
+			);
 			const bindingStripOrder = resolvePiBindingStripOrder({
 				db: options.db,
 				sessionId,
@@ -4794,8 +4834,8 @@ export function registerPiContextHandler(
 							sessionId,
 							messages: event.messages as unknown[],
 							entryIds: lkgEntryIds ?? [],
-							provider: lkgProviderKey ?? undefined,
-							model: ctx.model?.id,
+							provider: bindingModel.provider,
+							model: bindingModel.id,
 						})
 					: null;
 			// Maps each input message object to its branch entry id, so the strip at
@@ -5743,8 +5783,8 @@ export function registerPiContextHandler(
 					db: options.db,
 					messages: event.messages,
 					prefixBound: isPrefixBoundThinkingModel(
-						ctx.model?.provider,
-						ctx.model?.id,
+						bindingModel.provider,
+						bindingModel.id,
 					),
 					usagePercentage,
 					executeThresholdPercentage: effectiveExecuteThresholdPercentage,
@@ -5766,17 +5806,15 @@ export function registerPiContextHandler(
 					),
 					nativeReasoningMayClear: canClearNativeReasoning(ctx.model),
 					prefixBound: isPrefixBoundThinkingModel(
-						typeof ctx.model?.provider === "string"
-							? ctx.model.provider
-							: undefined,
-						typeof ctx.model?.id === "string" ? ctx.model.id : undefined,
+						bindingModel.provider,
+						bindingModel.id,
 					),
 					preserveReasoningToolArcs:
 						ctx.model?.api !== "openai-codex-responses" &&
 						ctx.model?.api !== "openai-responses",
 				},
-				resolvedProviderID: ctx.model?.provider,
-				resolvedModelID: ctx.model?.id,
+				resolvedProviderID: bindingModel.provider,
+				resolvedModelID: bindingModel.id,
 				providerApi: ctx.model?.api,
 				canUseEmptySentinels,
 				temporalAwareness: options.injection?.temporalAwareness === true,
@@ -5919,7 +5957,7 @@ export function registerPiContextHandler(
 			// An unheld pass therefore never needs this copy and does not take it.
 			let inputForThinkingFit: unknown[] | null =
 				(getHarness() !== "pi" || nativeFitPossible) &&
-				isPrefixBoundThinkingModel(ctx.model?.provider, ctx.model?.id) &&
+				isPrefixBoundThinkingModel(bindingModel.provider, bindingModel.id) &&
 				pipelineArgs.signedThinkingHold === true
 					? structuredClone(event.messages)
 					: null;
@@ -6235,8 +6273,8 @@ export function registerPiContextHandler(
 							sessionId,
 							messages: outputMessages as unknown[],
 							entryIds: outputEntryIds,
-							provider: lkgProviderKey ?? undefined,
-							model: ctx.model?.id,
+							provider: bindingModel.provider,
+							model: bindingModel.id,
 							endOfPassOrder: true,
 							// A rebuild already records any new omissions it needs, but
 							// must also replay saved omissions on every model. The proactive
@@ -6258,8 +6296,8 @@ export function registerPiContextHandler(
 						sessionId,
 						messages: outputMessages as unknown[],
 						entryIds: outputEntryIds,
-						provider: lkgProviderKey ?? undefined,
-						model: ctx.model?.id,
+						provider: bindingModel.provider,
+						model: bindingModel.id,
 						// Host-side mutations share the pipeline's permission. A history
 						// refresh alone cannot authorize changes before kept thinking:
 						// signatures bind all preceding bytes. A permitted prefix rewrite
@@ -6636,8 +6674,8 @@ export function registerPiContextHandler(
 						sessionId,
 						messages: outputMessages,
 						entryIds: retryIds.map((id) => id ?? undefined),
-						provider: ctx.model?.provider,
-						model: ctx.model?.id,
+						provider: bindingModel.provider,
+						model: bindingModel.id,
 						cacheBustingPass: result.prefixBustPermitted,
 						stripActiveTurn: true,
 					});
@@ -6860,8 +6898,8 @@ export function registerPiContextHandler(
 											result.lkgEntryIdByRef.get(message) ??
 											result.postCommitEntryIdByRef.get(message),
 									).map((id) => id ?? undefined),
-									provider: ctx.model?.provider,
-									model: ctx.model?.id,
+									provider: bindingModel.provider,
+									model: bindingModel.id,
 									cacheBustingPass: result.prefixBustPermitted,
 									stripActiveTurn: result.signedPrefixRewritten,
 								});
@@ -7048,7 +7086,7 @@ export function registerPiContextHandler(
 						options.heuristics?.keepReasoningTokens,
 						resolvePiContextModelKey(ctx),
 					),
-					isPrefixBoundThinkingModel(ctx.model?.provider, ctx.model?.id),
+					isPrefixBoundThinkingModel(bindingModel.provider, bindingModel.id),
 					sessionDecisionCalibration(options.db, sessionId).proseRatio,
 				);
 			if (thinkingBindingRecoveryApplied) {

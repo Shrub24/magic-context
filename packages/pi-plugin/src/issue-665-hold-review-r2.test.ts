@@ -210,6 +210,8 @@ export async function runPiHoldDriver(options: {
 	seed: number;
 	passes: number;
 	trace?: string;
+	/** Select an opaque virtual route; assistant messages keep the physical model. */
+	virtualRoute?: boolean;
 	/** sessionLog spy calls, printed for passes that re-render m[0]/m[1] when R2_DEBUG is set. */
 	logCalls?: unknown[][];
 }): Promise<{ records: PassRecord[]; violations: Violation[] }> {
@@ -421,12 +423,14 @@ export async function runPiHoldDriver(options: {
 			// check refuses a replay it cannot price without one.
 			getSystemPrompt: () =>
 				"You are a coding agent. Use read to inspect files for the current task.",
-			model: {
-				provider: "anthropic",
-				id: modelId,
-				api: "anthropic-messages",
-				contextWindow,
-			},
+			model: options.virtualRoute
+				? { provider: "route", id: "smart", api: "pi-virtual", contextWindow }
+				: {
+						provider: "anthropic",
+						id: modelId,
+						api: "anthropic-messages",
+						contextWindow,
+					},
 			getContextUsage: () => ({
 				tokens: (percent * contextWindow) / 100,
 				percent,
@@ -939,6 +943,33 @@ for (const seed of SEEDS) {
 			logs.mockRestore();
 		}
 	}, 600_000);
+
+	// One seed is enough: the route changes only which identity the hold reads.
+	if (seed === SEEDS[0])
+		test(`Pi held driver seed ${seed} behind a virtual route: held passes replay byte for byte`, async () => {
+			const logs = spyOn(logger, "sessionLog").mockImplementation(() => {});
+			try {
+				const { violations, records } = await runPiHoldDriver({
+					scenario: "held",
+					seed,
+					passes: PASSES,
+					virtualRoute: true,
+					logCalls: logs.mock.calls,
+				});
+				expect(records.filter((r) => r.held).length).toBeGreaterThan(
+					PASSES / 4,
+				);
+				expect(
+					summarize(
+						violations.filter(
+							(v) => v.kind === "held-prefix-changed" || v.kind === "refusal",
+						),
+					),
+				).toEqual([]);
+			} finally {
+				logs.mockRestore();
+			}
+		}, 600_000);
 
 	for (const scenario of ["unheld-unbound", "unheld-bound"] as const) {
 		test(`Pi ${scenario} driver seed ${seed}: trace for the pre-revision differential`, async () => {
