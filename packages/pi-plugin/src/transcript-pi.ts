@@ -783,30 +783,6 @@ function createPiAssistantPart(
 				markDirty(messageIndex);
 				return true;
 			}
-			if (p?.type === "toolCall") {
-				const replacementArgs = { __magic_context_replacement__: newText };
-				try {
-					if (JSON.stringify(p.arguments) === JSON.stringify(replacementArgs)) {
-						return false;
-					}
-				} catch {
-					// Non-serializable args still need to be replaceable.
-				}
-				const newContent = current.slice();
-				// Spread the existing part so optional fields (thoughtSignature)
-				// survive the rewrite — some providers reject a tool call whose
-				// signature was stripped on re-send. Only `arguments` changes.
-				newContent[partIndex] = {
-					...p,
-					arguments: replacementArgs,
-				};
-				working[messageIndex] = {
-					...(working[messageIndex] as PiAssistantMessage),
-					content: newContent,
-				};
-				markDirty(messageIndex, p.id);
-				return true;
-			}
 			return false;
 		},
 		setToolOutput(): boolean {
@@ -847,6 +823,13 @@ function createPiAssistantPart(
 				: null;
 		},
 		setToolInput(input: Record<string, unknown>): boolean {
+			// Legacy truncated drops must not replace typed invocation arguments.
+			if (
+				Object.keys(input).length === 1 &&
+				typeof input.dropped === "string" &&
+				/^\[dropped §\d+§\]$/.test(input.dropped)
+			)
+				return false;
 			const current = (working[messageIndex] as PiAssistantMessage).content;
 			const p = current[partIndex];
 			if (p?.type !== "toolCall") return false;
@@ -879,41 +862,13 @@ function createPiAssistantPart(
 		remove(): boolean {
 			return markToolRemoval(working, messageIndex, partIndex);
 		},
-		// Replace this assistant part's content with a sentinel placeholder.
-		//
-		// CRITICAL for toolCall parts: we MUST preserve `{ type: "toolCall",
-		// id, name }` so the Pi → provider serializer still emits a
-		// `function_call` / `tool_use` block with the original `call_id`.
-		// The corresponding `toolResult` message in the conversation
-		// references that same `call_id` (via `toolCallId`); breaking the
-		// pairing causes the provider to reject the request with
-		// errors like "No tool call found for function call output with
-		// call_id …" (Codex) or "tool_use blocks must be followed by
-		// matching tool_result blocks" (Anthropic).
-		//
-		// We therefore keep the toolCall shell with its id + name and
-		// reduce `arguments` to a tiny marker object. Bulk argument
-		// content is what we really want to drop; the structural shape
-		// stays intact so message-pair integrity holds across the
-		// API boundary.
-		//
-		// For non-toolCall assistant parts (text / thinking) we still
-		// fall back to a plain text-sentinel replacement — those have no
-		// pairing constraint and the bulk reduction is the only goal.
+		// Retained calls need their real arguments, including grammar-tool inputs.
 		replaceWithSentinel(sentinelText: string): boolean {
 			const current = (working[messageIndex] as PiAssistantMessage).content;
 			const existing = current[partIndex];
 			const newContent = current.slice();
-			if (existing && existing.type === "toolCall") {
-				// Spread the existing part so optional fields (thoughtSignature)
-				// survive the sentinel rewrite — the toolCall shell must stay a
-				// faithful, provider-acceptable function_call/tool_use; only the
-				// bulk `arguments` payload is reduced to the marker.
-				newContent[partIndex] = {
-					...existing,
-					arguments: { dropped: sentinelText },
-				};
-			} else if (existing?.type === "text") {
+			if (existing?.type === "toolCall") return false;
+			if (existing?.type === "text") {
 				newContent[partIndex] = { ...existing, text: sentinelText };
 			} else {
 				newContent[partIndex] = { type: "text", text: sentinelText };
@@ -922,10 +877,7 @@ function createPiAssistantPart(
 				...(working[messageIndex] as PiAssistantMessage),
 				content: newContent,
 			};
-			markDirty(
-				messageIndex,
-				existing?.type === "toolCall" ? existing.id : undefined,
-			);
+			markDirty(messageIndex);
 			return true;
 		},
 	};

@@ -61,8 +61,8 @@ function oldAssistant() {
 			{
 				type: "toolCall",
 				id: callId,
-				name: "read",
-				arguments: { path: staleInput },
+				name: "codemode",
+				arguments: { code: staleInput },
 			},
 		],
 		providerPayload: {
@@ -84,8 +84,8 @@ function oldAssistant() {
 					type: "function_call",
 					id: "fc-old",
 					call_id: "call-old",
-					name: "read",
-					arguments: JSON.stringify({ path: staleInput }),
+					name: "codemode",
+					arguments: JSON.stringify({ code: staleInput }),
 				},
 				{
 					type: "image_generation_call",
@@ -111,7 +111,7 @@ function nativeBytes(messages: unknown[]): string {
 	);
 }
 
-function fixture(sessionId: string) {
+function fixture(sessionId: string, selectedModel = model) {
 	const db = createTestDb();
 	const fake = createFakePi();
 	const options = {
@@ -146,7 +146,7 @@ function fixture(sessionId: string) {
 				["entry-user", "entry-old", "entry-result", "entry-next"],
 				messages,
 			),
-			model,
+			model: selectedModel,
 			getContextUsage: () => ({
 				percent,
 				tokens: percent * 1000,
@@ -183,6 +183,83 @@ function fixture(sessionId: string) {
 }
 
 describe("native upgrade application", () => {
+	for (const mode of ["full", "truncated"] as const) {
+		it(`preserves grammar arguments for a routed ${mode} drop across replay`, async () => {
+			const sessionId = `ses-grammar-route-${mode}`;
+			const f = fixture(sessionId, {
+				...model,
+				api: "pi-virtual",
+				provider: "route",
+				id: "coder",
+			});
+			try {
+				await f.seedLegacy();
+				const tag = getTagsBySession(f.db, sessionId).find(
+					(t) => t.messageId === callId,
+				);
+				if (!tag) throw new Error("Missing dropped grammar-tool tag");
+				updateTagDropMode(f.db, sessionId, tag.tagNumber, mode);
+				if (mode === "full")
+					saveNativeToolInputs(
+						f.db,
+						sessionId,
+						new Map([[callId, NATIVE_TOOL_REMOVAL_MARKER]]),
+					);
+				const first = await f.pass(0);
+				const calls = (messages: unknown[]) =>
+					(
+						messages as Array<{
+							content?: Array<{
+								type: string;
+								id?: string;
+								arguments?: unknown;
+							}>;
+						}>
+					)
+						.flatMap((m) => (Array.isArray(m.content) ? m.content : []))
+						.filter((p) => p.type === "toolCall" && p.id === callId);
+				expect(calls(first)).toMatchObject([
+					{ arguments: { code: staleInput } },
+				]);
+				const result = first.find(
+					(message) =>
+						(message as { toolCallId?: string }).toolCallId === callId,
+				) as { content: unknown } | undefined;
+				expect(JSON.stringify(result?.content)).toContain(
+					`[dropped §${tag.tagNumber}§]`,
+				);
+				if (process.env.MC_GRAMMAR_HOST) {
+					const { convertResponsesMessages } = await import(
+						process.env.MC_GRAMMAR_HOST
+					);
+					const wire = convertResponsesMessages(
+						{
+							...model,
+							api: "openai-responses",
+							provider: "openai",
+							input: ["text"],
+						},
+						{ messages: first },
+						new Set(["openai", "openai-codex"]),
+						{ grammarToolInputProperties: new Map([["codemode", "code"]]) },
+					);
+					expect(wire).toContainEqual(
+						expect.objectContaining({
+							type: "custom_tool_call",
+							name: "codemode",
+							input: staleInput,
+						}),
+					);
+				}
+				expect(calls(await f.pass(0))).toEqual(calls(first));
+				f.restart();
+				expect(calls(await f.pass(0))).toEqual(calls(first));
+			} finally {
+				f.close();
+			}
+		});
+	}
+
 	it("keeps legacy native bytes across defer passes, then persists one authorized transition", async () => {
 		const sessionId = "ses-native-upgrade";
 		const f = fixture(sessionId);
@@ -196,7 +273,7 @@ describe("native upgrade application", () => {
 				content: [
 					{ type: "thinking", thinking: "" },
 					{},
-					{ arguments: { dropped: expect.any(String) } },
+					{ arguments: { code: staleInput } },
 				],
 			});
 			expect(nativeBytes(await f.pass(0))).toBe(a);
@@ -247,7 +324,7 @@ describe("native upgrade application", () => {
 							thinkingSignature: "old signature",
 						},
 						{ type: "text", text: "visible answer" },
-						{ arguments: { path: staleInput } },
+						{ arguments: { code: staleInput } },
 					],
 				});
 				expect(getNativeToolInputs(f.db, sessionId)).toEqual(savedInputs);
@@ -297,7 +374,7 @@ describe("native upgrade application", () => {
 						content: [
 							{ type: "thinking", thinking: "", thinkingSignature: undefined },
 							{},
-							{ arguments: { dropped: expect.any(String) } },
+							{ arguments: { code: staleInput } },
 						],
 					});
 				}
@@ -343,7 +420,7 @@ describe("native upgrade application", () => {
 					content: [
 						{ type: "thinking", thinking: "", thinkingSignature: undefined },
 						{},
-						{ arguments: { dropped: expect.any(String) } },
+						{ arguments: { code: staleInput } },
 					],
 				});
 			}

@@ -75,7 +75,7 @@ describe("transcript-pi tool pairing preservation", () => {
 		// This is the call path heuristic-cleanup uses through the TagTarget.drop()
 		// indirection; we exercise it directly here.
 		const replaced = toolUsePart?.replaceWithSentinel("[dropped §42§]");
-		expect(replaced).toBe(true);
+		expect(replaced).toBe(false);
 
 		transcript.commit();
 		const out = transcript.getOutputMessages();
@@ -101,7 +101,7 @@ describe("transcript-pi tool pairing preservation", () => {
 		expect(outToolResult.toolCallId).toBe("call_abc123");
 	});
 
-	it("preserves the toolCall sentinel arguments shape so the bulk content shrinks", () => {
+	it("preserves typed arguments when a tool call cannot be removed", () => {
 		const messages = [
 			{
 				role: "assistant",
@@ -136,7 +136,7 @@ describe("transcript-pi tool pairing preservation", () => {
 		const part = transcript.messages[0].parts.find(
 			(p) => p.kind === "tool_use",
 		);
-		expect(part?.replaceWithSentinel("[dropped §1§]")).toBe(true);
+		expect(part?.replaceWithSentinel("[dropped §1§]")).toBe(false);
 		transcript.commit();
 
 		const out = transcript.getOutputMessages();
@@ -152,12 +152,8 @@ describe("transcript-pi tool pairing preservation", () => {
 		expect(outCall.type).toBe("toolCall");
 		expect(outCall.id).toBe("call_xyz");
 		expect(outCall.name).toBe("mcp_read");
-		// arguments are reduced to the sentinel marker — bulk gone.
-		expect(outCall.arguments).toEqual({
-			dropped: "[dropped §1§]",
-		});
-		// The full original args do NOT survive.
-		expect(JSON.stringify(outCall.arguments).length).toBeLessThan(200);
+		// Retained calls keep their typed arguments.
+		expect(outCall.arguments).toEqual(messages[0].content[0].arguments);
 	});
 
 	it("falls back to plain text-sentinel for non-toolCall assistant parts", () => {

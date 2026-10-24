@@ -258,18 +258,14 @@ describe("createPiTranscript", () => {
 		const parts = transcript.messages[assistantMessageIndex]?.parts ?? [];
 
 		expect(parts[0]?.setText("ordinary content changed")).toBe(true);
-		expect(parts[1]?.replaceWithSentinel("[dropped input]")).toBe(true);
-		expect(parts[2]?.setText("[truncated input]")).toBe(true);
+		expect(parts[1]?.replaceWithSentinel("[dropped input]")).toBe(false);
+		expect(parts[2]?.setText("[truncated input]")).toBe(false);
 		expect(parts[3]?.setToolInput?.({ path: "short.txt" })).toBe(true);
 		expect(
 			Array.from(
 				transcript.getToolInputChanges().get(assistantMessageIndex) ?? [],
 			),
-		).toEqual([
-			"call-sentinel|fc-sentinel",
-			"call-text|fc-text",
-			"call-input|fc-input",
-		]);
+		).toEqual(["call-input|fc-input"]);
 
 		transcript.commit();
 		const output = transcript.getOutputMessages() as Array<{
@@ -291,13 +287,13 @@ describe("createPiTranscript", () => {
 				type: "toolCall",
 				id: "call-sentinel|fc-sentinel",
 				name: "write",
-				arguments: { dropped: "[dropped input]" },
+				arguments: { content: "large original input" },
 			},
 			{
 				type: "toolCall",
 				id: "call-text|fc-text",
 				name: "edit",
-				arguments: { __magic_context_replacement__: "[truncated input]" },
+				arguments: { patch: "large original patch" },
 			},
 			{
 				type: "toolCall",
@@ -433,7 +429,7 @@ describe("createPiTranscript", () => {
 		expect(textOf(output[1] as never)).toBe("changed array");
 	});
 
-	it("falls back to replacing toolCall arguments through setText", () => {
+	it("preserves toolCall arguments when a text replacement is requested", () => {
 		const messages = [
 			assistantToolCall("call-1", "Read", { path: "large-file.txt" }),
 		];
@@ -443,7 +439,7 @@ describe("createPiTranscript", () => {
 		expect(() => part?.setToolOutput("[truncated]")).toThrow(
 			"setToolOutput on assistant part",
 		);
-		expect(part?.setText("[truncated]")).toBe(true);
+		expect(part?.setText("[truncated]")).toBe(false);
 		transcript.commit();
 
 		const output = transcript.getOutputMessages() as Array<{
@@ -451,7 +447,7 @@ describe("createPiTranscript", () => {
 		}>;
 		expect(output[0]?.content[0]).toMatchObject({
 			type: "toolCall",
-			arguments: { __magic_context_replacement__: "[truncated]" },
+			arguments: { path: "large-file.txt" },
 		});
 	});
 
