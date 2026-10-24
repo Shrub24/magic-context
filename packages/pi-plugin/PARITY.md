@@ -1109,6 +1109,12 @@ can reject copied `§N§` drop placeholders before the shell tool runs.
 The scenario asserts the same no-execution contract, but registration and error
 delivery are host-owned and therefore not byte-identical.
 
+Pi / OMP also preserve invocation arguments when replay keeps a dropped tool
+pair. Only the result becomes a placeholder: replacing typed arguments breaks
+grammar-tool serialization. This includes legacy `full` and `truncated` drops;
+authorized structural removal is unchanged. OpenCode and Rust adapters are
+unchanged.
+
 **Contract:** `packages/e2e-tests/tests/dropped-input-guard.test.ts` runs one
 assertion set through the selected harness. The Pi-family registration carrier is
 an intentional divergence; accepting or executing the placeholder is not.
