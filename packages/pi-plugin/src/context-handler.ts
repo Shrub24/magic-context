@@ -483,6 +483,11 @@ import {
 	resolvePiStableId,
 } from "./read-session-pi";
 import {
+	getPiRequestModel,
+	recordPiRequestModel,
+	resolvePiRequestContext,
+} from "./request-model-pi";
+import {
 	buildMessageIdToMaxTag,
 	clearOldReasoningPi,
 	piReasoningClearCutoff,
@@ -1497,12 +1502,7 @@ export function recordPiLiveModel(sessionId: string, modelKey: string): void {
 	liveModelBySession.set(sessionId, modelKey);
 }
 
-/**
- * Model whose signed thinking binds the prefix. A virtual route resolves to its
- * physical model before the `context` hook runs, but Pi does not expose it; the
- * latest successful response's model stands in (one step stale across a switch).
- * HACK: replace with the resolved request model once Pi exposes it to `context`.
- */
+/** Legacy hosts infer virtual-route binding from the last successful response. */
 export function resolvePiSignedBindingModel(
 	selected: { api?: string; provider?: string; id?: string } | undefined,
 	messages: readonly unknown[],
@@ -4452,6 +4452,7 @@ export function registerPiContextHandler(
 		// out of time meanwhile, stop before claiming the session's pass
 		// generation: claiming it would mark a newer pass as superseded.
 		budget.assertOutcome();
+		const selectedContext = ctx;
 		const passSessionId = ctx.sessionManager
 			? resolveSessionId(ctx)
 			: undefined;
@@ -4517,6 +4518,8 @@ export function registerPiContextHandler(
 				return;
 			}
 			sessionIdForError = sessionId;
+			ctx = resolvePiRequestContext(event, ctx);
+			const hasRequestModel = ctx !== selectedContext;
 			// Context runs after every before_agent_start handler. Measure the final
 			// host prompt before storage admission, so an early validated LKG replay
 			// also records the system bytes served alongside the replayed messages.
@@ -4530,13 +4533,16 @@ export function registerPiContextHandler(
 			} catch {
 				// A failed getter cannot prove that the provider's cached system bytes changed.
 			}
-			recordPiLiveContext(sessionId, ctx);
+			recordPiLiveContext(sessionId, selectedContext);
 			// Resolve a DB-independent wall before the first storage operation can fail.
 			let piUsage:
 				| ReturnType<NonNullable<ExtensionContext["getContextUsage"]>>
 				| undefined;
 			try {
 				piUsage = ctx.getContextUsage?.();
+				if (hasRequestModel && piUsage && ctx.model) {
+					piUsage = { ...piUsage, contextWindow: ctx.model.contextWindow };
+				}
 			} catch {
 				// Model metadata remains available if the host usage probe fails.
 			}
@@ -4991,6 +4997,7 @@ export function registerPiContextHandler(
 			// before the first prompt after the restart is still detected.
 			if (
 				isFirstContextPassForSession &&
+				!hasRequestModel &&
 				liveModelBySession.get(sessionId) === undefined
 			) {
 				// Reuse the branch entries already read above (readPiBranchEntries
@@ -5000,8 +5007,20 @@ export function registerPiContextHandler(
 					liveModelBySession.set(sessionId, seeded);
 				}
 			}
-			const previousModelKey = liveModelBySession.get(sessionId);
+			let previousModelKey = liveModelBySession.get(sessionId);
+			if (hasRequestModel && !getPiRequestModel(sessionId)) {
+				// Restart or first adoption: compare physical evidence, never a route name.
+				previousModelKey = sessionMetaForUsage.lastObservedModelKey ?? undefined;
+				if (
+					selectedContext.model?.api === "pi-virtual" &&
+					piModelRefToCanonical(previousModelKey ?? "") ===
+						piModelRefToCanonical(resolvePiContextModelKey(selectedContext) ?? "")
+				) previousModelKey = undefined;
+			}
 			const currentModelKey = resolvePiContextModelKey(ctx);
+			if (!budget.sideTurn) {
+				recordPiRequestModel(sessionId, hasRequestModel ? ctx.model : undefined);
+			}
 			if (options.cacheTtlConfig !== undefined)
 				sessionMetaForUsage.cacheTtl = resolveSessionCacheTtl(
 					options.db,
@@ -5143,10 +5162,8 @@ export function registerPiContextHandler(
 			let usagePercentage = 0;
 			let usageInputTokens = 0;
 			// Persisted usage (from message_end via persistPiPressureFromMessageEnd)
-			// already has its percentage computed against the sane-bounded +
-			// detected-limit-corrected effective limit, so it's authoritative and
-			// must NOT be recomputed below. The fallback path (raw getContextUsage)
-			// uses Pi's own denominator and DOES need correcting.
+			// already has a corrected percentage. Keep it unless requestModel supplies
+			// the current target's denominator. Raw host usage also needs correcting.
 			let usedPersistedUsage = false;
 			if (
 				sessionMetaForUsage.lastContextPercentage > 0 &&
@@ -5165,9 +5182,11 @@ export function registerPiContextHandler(
 			// (isSaneLimit, not `> 0`). A garbage-but-positive window (e.g. a
 			// transient 6748) must be REJECTED here, not trusted — otherwise the
 			// history budget collapses to a few hundred tokens and over-archives.
-			let usageContextLimit = isSaneLimit(piUsage?.contextWindow)
-				? piUsage.contextWindow
-				: undefined;
+			let usageContextLimit = hasRequestModel
+				? ctx.model?.contextWindow
+				: isSaneLimit(piUsage?.contextWindow)
+					? piUsage.contextWindow
+					: undefined;
 			let usageContextWindowSource: "observed" | "catalog" = "catalog";
 			let detectedContextLimit: number | undefined;
 
@@ -5285,9 +5304,9 @@ export function registerPiContextHandler(
 			// once we've corrected the limit (detected-overflow cap, or a sane
 			// window replacing a garbage one). Recompute against the corrected
 			// limit so the scheduler's percentage check and the 85/95% cleanup
-			// paths see the true pressure. (Persisted usage is already correct.)
+			// paths see the true pressure. A requestModel also replaces the prior denominator.
 			if (
-				!usedPersistedUsage &&
+				(!usedPersistedUsage || hasRequestModel) &&
 				isSaneLimit(usageContextLimit) &&
 				usageInputTokens > 0
 			) {
@@ -12559,6 +12578,7 @@ export function clearContextHandlerSession(sessionId: string): void {
 	clearPiContextReceipt(sessionId);
 	commitSeenLastPass.delete(sessionId);
 	liveModelBySession.delete(sessionId);
+	recordPiRequestModel(sessionId, undefined);
 	latestAssistantModelTimestampBySession.delete(sessionId);
 	taggedStableMessageIdsBySession.delete(sessionId);
 	taggedEntryHeadersBySession.delete(sessionId);

@@ -1095,8 +1095,8 @@ Both harness twins now pre-execute a due fold off-wire and feed the shared `fold
 | OpenCode `readCurrentM0SnapshotMarkersUncached` | Canonicalizes the marker written with m[0]. |
 | OpenCode `mustMaterialize` | Canonicalizes both the live hard signal and cached m[0] key. |
 | OpenCode `cachedRowMatchesState` | Canonicalizes both cached-row and in-process keys. |
-| `cache_ttl`, execute-threshold, prompt-surface model maps | Resolve through `modelRefLookupOrder`, whose first candidate is canonical and whose fallbacks include native aliases. Pi resolves TTL against the selected model/route at message end and during context preparation; physical assistant metadata is recorded separately. |
-| `last_observed_model_key` | Write paths canonicalize it and OpenCode readers canonicalize both sides. Pi records the physical assistant model here for diagnostics. Pi model-switch and HARD-fold decisions use selected identity in `liveModelBySession`, not this column. |
+| `cache_ttl`, execute-threshold, prompt-surface model maps | Resolve through `modelRefLookupOrder`, whose first candidate is canonical and whose fallbacks include native aliases. Pi uses the host's optional `requestModel` for request-time policy and message-end TTL; without it, selected-model/route resolution is unchanged. Physical assistant metadata remains separate. |
+| `last_observed_model_key` | Write paths canonicalize it and OpenCode readers canonicalize both sides. Pi records the physical assistant model here. With `requestModel`, it also seeds physical identity after restart or first adoption; otherwise switch detection retains selection-based seeding. Response observations never overwrite live request identity. |
 
 Workspace fingerprints preserve the distinction between SQL `NULL` (not workspaced) and a non-empty hash. The compare normalizes only nullish values to `null`; it does not coerce `NULL` to `""`. A legacy zero-length fingerprint would therefore trigger one self-healing fold whose write stores the current `null`, not a per-pass loop.
 
@@ -1209,3 +1209,9 @@ Tail-hygiene parity is active. Persisted `last_nudge_undropped` and `last_nudge_
 ## Fork-only Pi cache TTL override
 
 Pi may set user-level `pi.cache_ttl` to control its independent idle-TTL scheduler; when absent, Pi falls back to root `cache_ttl`. Project-level `pi.cache_ttl` is ignored. OMP and OpenCode continue using the root TTL, so the shared OpenCode policy is unchanged. `pi.cache_ttl = "never"` disables only the idle-TTL trigger: configured pressure thresholds still execute normally.
+
+## Resolved request model (fork)
+
+Hosts that supply a resolved, non-virtual `context.requestModel` make it authoritative for that pass's model-dependent handling: API compatibility, window/pressure, per-model policy, switch reset and cache fold. The host's `ctx.model` remains the selection. Physical switches use the unchanged native reset, including reasoning-watermark and historian-failure resets. When the field is absent or still virtual, current selected-model behavior and last-response signed-binding inference remain intact; OpenCode and Rust are unaffected.
+
+The router can stop flushing on physical model changes after this path is verified on the patched host. TTL ownership and the flush/wrapup event contracts are unchanged.

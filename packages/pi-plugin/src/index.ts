@@ -186,6 +186,7 @@ import {
 	trackSessionForProject,
 } from "./context-handler";
 import { registerCtxLifecycleEvents } from "./ctx-lifecycle-events";
+import { getPiRequestModel } from "./request-model-pi";
 import {
 	markPiChannel1Reduced,
 	maybeChannel1ReminderForToolResult,
@@ -455,16 +456,24 @@ export function persistPiMessageEndModelMeta(args: {
 		return;
 	}
 	const modelKey = canonicalPiModelKey(msg.provider, msg.model);
+	const requestModel = getPiRequestModel(args.sessionId);
+	if (
+		requestModel &&
+		modelKey !== canonicalPiModelKey(requestModel.provider, requestModel.id)
+	) return;
 	if (!acceptPiAssistantModelTimestamp(args.sessionId, msg.timestamp)) return;
 	const currentMeta = getOrCreateSessionMeta(args.db, args.sessionId);
+	const policyModelKey = requestModel
+		? canonicalPiModelKey(requestModel.provider, requestModel.id)
+		: args.selectedModelKey;
 	const cacheTtl =
-		args.selectedModelKey === undefined
+		policyModelKey === undefined
 			? currentMeta.cacheTtl
 			: resolveSessionCacheTtl(
 					args.db,
 					args.sessionId,
 					args.cacheTtlConfig,
-					args.selectedModelKey,
+					policyModelKey,
 					args.cacheTtlConfigured,
 				).value;
 	updateSessionMeta(args.db, args.sessionId, {
@@ -772,6 +781,20 @@ export async function persistPiPressureFromMessageEnd(args: {
 	readBranch?: () => readonly unknown[] | undefined;
 	notifyIssue?: (message: string) => unknown | Promise<unknown>;
 }): Promise<void> {
+	const requestModel = getPiRequestModel(args.sessionId);
+	if (requestModel) {
+		const observed = getPiMessageModel(args.message);
+		if (
+			observed.provider && observed.model &&
+			canonicalPiModelKey(observed.provider, observed.model) !==
+				canonicalPiModelKey(requestModel.provider, requestModel.id)
+		) return;
+		args = {
+			...args,
+			piModel: requestModel,
+			piContextWindow: requestModel.contextWindow,
+		};
+	}
 	acknowledgePiSystemPromptResponse(args.sessionId, args.message);
 	// Pi emits message_end before it appends the message to the branch, so the
 	// branch read for the flag does not hold this message yet. A reply with
